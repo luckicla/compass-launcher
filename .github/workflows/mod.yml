@@ -1,0 +1,92 @@
+# Mod de comandos de Compass para servidores Fabric (/tpa, /home…): se compila para 1.20–1.21.x y para 26.1,
+# y se prueba arrancando servidores Fabric de verdad con el mod puesto.
+name: mod
+on:
+  push:
+    branches: [mod-test]
+  workflow_dispatch:
+  workflow_call:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.4.0"
+      - name: Versiones de Fabric
+        id: v
+        run: |
+          # Loom estable de la serie 1.15 (la que va con Gradle 9.4); las alpha piden un Gradle más nuevo
+          stable() { curl -fsSL "https://maven.fabricmc.net/net/fabricmc/$1/net.fabricmc.$1.gradle.plugin/maven-metadata.xml" | grep -oP '(?<=<version>)[^<]+' | grep -E '^1\.15\.[0-9]+$' | sort -V | tail -1; }
+          LOOM_REMAP=$(stable fabric-loom-remap); LOOM=$(stable fabric-loom)
+          curl -fsSL "https://maven.fabricmc.net/net/fabricmc/fabric-loom/net.fabricmc.fabric-loom.gradle.plugin/maven-metadata.xml" | grep -oP '(?<=<version>)[^<]+' | grep -vE 'alpha|beta|SNAPSHOT|rc' | sort -V | tail -5
+          LOADER=$(curl -fsSL https://meta.fabricmc.net/v2/versions/loader | jq -r '[.[]|select(.stable)][0].version')
+          fapi() { curl -fsSL "https://api.modrinth.com/v2/project/fabric-api/version?game_versions=%5B%22$1%22%5D&loaders=%5B%22fabric%22%5D" | jq -r '.[0].version_number'; }
+          FAPI120=$(fapi 1.20.1); FAPI261=$(fapi 26.1)
+          V=$(node -p "require('./package.json').version")
+          echo "loom-remap=$LOOM_REMAP loom=$LOOM loader=$LOADER fapi120=$FAPI120 fapi261=$FAPI261 v=$V"
+          printf "loom_version=%s\nminecraft_version=1.20.1\nloader_version=%s\nfabric_version=%s\nmod_version=%s\norg.gradle.jvmargs=-Xmx2G\n" "$LOOM_REMAP" "$LOADER" "$FAPI120" "$V" > mod/v120/gradle.properties
+          printf "loom_version=%s\nminecraft_version=26.1\nloader_version=%s\nfabric_version=%s\nmod_version=%s\norg.gradle.jvmargs=-Xmx2G\n" "$LOOM" "$LOADER" "$FAPI261" "$V" > mod/v261/gradle.properties
+          cat mod/v120/gradle.properties mod/v261/gradle.properties
+      - name: Compilar para 1.20 – 1.21.x
+        run: gradle -p mod/v120 build --no-daemon --stacktrace
+      - name: Compilar para 26.1
+        run: gradle -p mod/v261 build --no-daemon --stacktrace
+      - name: Juntar
+        run: |
+          mkdir -p out
+          cp mod/v120/build/libs/compass-comandos-1.20-*.jar out/compass-comandos-1.20.jar
+          cp mod/v261/build/libs/compass-comandos-26.1-*.jar out/compass-comandos-26.1.jar
+          ls -la out; unzip -p out/compass-comandos-1.20.jar fabric.mod.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compass-mod
+          path: out/*.jar
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ["1.20.1", "1.20.6", "1.21.1", "1.21.4", "1.21.8", "1.21.11", "26.1", "26.1.2"]
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: actions/download-artifact@v4
+        with:
+          name: compass-mod
+          path: jars
+      - name: Servidor Fabric ${{ matrix.mc }} con el mod
+        run: |
+          set -e
+          MC=${{ matrix.mc }}
+          mkdir srv && cd srv && mkdir mods
+          LOADER=$(curl -fsSL https://meta.fabricmc.net/v2/versions/loader | jq -r '[.[]|select(.stable)][0].version')
+          INST=$(curl -fsSL https://meta.fabricmc.net/v2/versions/installer | jq -r '[.[]|select(.stable)][0].version')
+          curl -fsSL -o server.jar "https://meta.fabricmc.net/v2/versions/loader/$MC/$LOADER/$INST/server/jar"
+          FAPI=$(curl -fsSL "https://api.modrinth.com/v2/project/fabric-api/version?game_versions=%5B%22$MC%22%5D&loaders=%5B%22fabric%22%5D" | jq -r '.[0].files[0].url')
+          curl -fsSL -o mods/fabric-api.jar "$FAPI"
+          case "$MC" in 26.*) cp ../jars/compass-comandos-26.1.jar mods/ ;; *) cp ../jars/compass-comandos-1.20.jar mods/ ;; esac
+          echo "eula=true" > eula.txt
+          printf "online-mode=false\nlevel-type=minecraft\\:flat\nspawn-protection=0\nserver-port=25599\n" > server.properties
+          echo '{"token":"0123456789abcdef","tpa":"all","ctp":"all","home":"all"}' > compass-cmds.json
+          echo '{"steve":{"casa":{"x":1,"y":2,"z":3}}}' > compass-homes.json
+          mkfifo in
+          (sleep 1; while ! grep -q "Done (" log.txt 2>/dev/null; do sleep 2; done; sleep 2
+           for c in "compass" "tpa Steve" "tpaccept" "tpdeny" "ctp 10 64 10" "ctp Steve Alex" "sethome casa" "home casa" "home" "homes" "delhome casa" "help tpa"; do echo "$c"; sleep 1; done
+           sleep 2; echo stop) > in &
+          timeout 600 java -Xmx2G -jar server.jar nogui < in > log.txt 2>&1 || true
+          grep -E "CompassCmd|compass|Exception|Incompatible|ERROR" log.txt | head -60
+          grep -q "\[CompassCmd\] comandos listos" log.txt
+          N=$(grep -c "\[CompassCmd\] prueba" log.txt); echo "comandos que han llegado: $N"
+          test "$N" -ge 11
+          grep -q "Done (" log.txt

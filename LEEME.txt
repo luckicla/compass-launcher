@@ -1,7 +1,14 @@
-COMPASS LAUNCHER 5.3
-====================
+COMPASS LAUNCHER 5.3.1
+======================
 
 Web: https://luckicla.github.io/compass-launcher  ·  Hecho por luckicla  ·  © 2026, todos los derechos reservados.
+
+NOVEDADES DE LA 5.3.1
+  - Mod de comandos de Compass para servidores Fabric 1.20, 1.21 y 26.1: /tpa, /tpaccept, /tpdeny,
+    /ctp, /sethome, /home, /homes, /delhome y /compass, con autocompletado (Tab). Compass lo pone solo.
+  - /ctp: como el /tp normal pero sin ser OP, para quien tú elijas. /tpa y casas activados para todos.
+  - En Gente: casas por jugador, cuenta atrás, tiempo entre teletransportes y tiempo para aceptar.
+  - Arreglado el mapa en mundos de Minecraft 26.1.
 
 NOVEDADES DE LA 5.3
   - Idiomas: español, inglés y catalán (se elige solo según el sistema; se cambia en

@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "id": "compass-comandos",
+  "version": "${version}",
+  "name": "Compass: comandos",
+  "description": "Comandos de Compass Launcher con autocompletado: /tpa, /tpaccept, /tpdeny, /sethome, /home, /homes, /delhome y /compass. Se configura desde Compass Launcher.",
+  "authors": ["luckicla"],
+  "contact": { "homepage": "https://luckicla.github.io/compass-launcher" },
+  "license": "All-Rights-Reserved",
+  "environment": "server",
+  "entrypoints": { "main": ["net.luckicla.compass.ComandosCompass"] },
+  "depends": { "fabricloader": ">=0.14.0", "minecraft": "${mcrange}", "fabric-api": "*" }
+}

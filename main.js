@@ -1,6 +1,6 @@
 'use strict';
 const { app, BrowserWindow, ipcMain, dialog, shell, clipboard, Tray, Menu, nativeImage } = require('electron');
-const path = require('path'), fs = require('fs'), os = require('os'), crypto = require('crypto'), http = require('http'), net = require('net'), dns = require('dns');
+const path = require('path'), fs = require('fs'), os = require('os'), crypto = require('crypto'), http = require('http'), net = require('net'), dns = require('dns'), zlib = require('zlib');
 const { spawn } = require('child_process');
 const { Readable } = require('stream');
 const { pipeline } = require('stream/promises');
@@ -133,7 +133,7 @@ async function get(u, o = {}) {
 const J = async (u, o) => { const r = await get(u, o); if (!r.ok) throw new Error(`Error ${r.status} en ${u}`); return r.json(); };
 // Si una descarga se queda parada (sin recibir nada en 40 s) se corta y se reintenta, en vez de esperar
 // minutos y minutos: así pasaba a veces con Java, que parecía que «no descargaba».
-async function dl(u, f, label, tries = 3) {
+async function dl(u, f, label, tries = 3, want = null) {
   for (let a = 1; ; a++) {
     const ac = new AbortController(); let idle = null;
     const kick = () => { clearTimeout(idle); idle = setTimeout(() => ac.abort(), 40000); };
@@ -148,6 +148,8 @@ async function dl(u, f, label, tries = 3) {
       rs.on('data', c => { kick(); got += c.length; if (label && total) prog(label, got / total * 100); });
       await pipeline(rs, fs.createWriteStream(f + '.part'));
       if (total && fs.statSync(f + '.part').size !== total) throw new Error('Descarga cortada: ' + path.basename(f));
+      if (want && crypto.createHash('sha1').update(fs.readFileSync(f + '.part')).digest('hex') !== want) throw new Error('Descarga dañada: ' + path.basename(f));
+      if (/\.jar$/i.test(f) && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
       fs.renameSync(f + '.part', f);
       return;
     } catch (e) {
@@ -157,6 +159,53 @@ async function dl(u, f, label, tries = 3) {
       await sleep(900 * a);
     } finally { clearTimeout(idle); }
   }
+}
+// ---------- .jar dañados ----------
+// Un .jar a medio bajar o con bytes cambiados hace que Fabric no arranque («ZipException: invalid distance code»).
+// Se comprueba entero: cada archivo de dentro se descomprime y se mira su CRC (también los .jar que van dentro de otro).
+const CRC_T = (() => { const t = new Int32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; t[n] = c; } return t; })();
+const crc32b = b => { let c = -1; for (let i = 0; i < b.length; i++) c = CRC_T[(c ^ b[i]) & 255] ^ (c >>> 8); return (c ^ -1) >>> 0; };
+function zipOk(b, depth = 0) {
+  try {
+    let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) if (b.readUInt32LE(i) === 0x06054b50) { e = i; break; }
+    if (e < 0) return false;
+    const n = b.readUInt16LE(e + 10); let p = b.readUInt32LE(e + 16);
+    if (p === 0xffffffff || n === 0xffff) return true;   // zip64: no se comprueba
+    for (let k = 0; k < n; k++) {
+      if (b.readUInt32LE(p) !== 0x02014b50) return false;
+      const meth = b.readUInt16LE(p + 10), crc = b.readUInt32LE(p + 16), cs = b.readUInt32LE(p + 20), us = b.readUInt32LE(p + 24);
+      const nl = b.readUInt16LE(p + 28), el = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32), lo = b.readUInt32LE(p + 42), name = b.toString('utf8', p + 46, p + 46 + nl);
+      p += 46 + nl + el + cl;
+      if (name.endsWith('/') || !us) continue;
+      if (b.readUInt32LE(lo) !== 0x04034b50) return false;
+      const d0 = lo + 30 + b.readUInt16LE(lo + 26) + b.readUInt16LE(lo + 28), data = b.subarray(d0, d0 + cs);
+      if (data.length !== cs) return false;
+      const out = meth === 8 ? zlib.inflateRawSync(data) : meth === 0 ? data : null;
+      if (!out) continue;
+      if (out.length !== us || crc32b(out) !== crc) return false;
+      if (depth < 1 && /\.jar$/i.test(name) && !zipOk(out, depth + 1)) return false;
+    }
+    return true;
+  } catch { return false; }
+}
+let jarOkCache = null, jarOkDirty = false;   // archivos ya comprobados (se guarda en disco para no repetirlo en cada partida)
+function jarOk(f) {
+  try {
+    if (!jarOkCache) { try { jarOkCache = new Map(Object.entries(JSON.parse(fs.readFileSync(path.join(U(), 'jars-ok.json'), 'utf8')))); } catch { jarOkCache = new Map(); } }
+    const st = fs.statSync(f), k = f + '|' + st.size + '|' + Math.round(st.mtimeMs);
+    if (jarOkCache.has(k)) return true;
+    const ok = zipOk(fs.readFileSync(f));
+    if (ok) { jarOkCache.set(k, 1); if (!jarOkDirty) { jarOkDirty = true; setTimeout(() => { jarOkDirty = false; try { fs.writeFileSync(path.join(U(), 'jars-ok.json'), JSON.stringify(Object.fromEntries([...jarOkCache].slice(-3000)))); } catch {} }, 3000); } }
+    return ok;
+  } catch { return false; }
+}
+// quita los .jar dañados de una carpeta de mods (luego se vuelven a bajar o a copiar) y dice cuáles eran
+async function dropBrokenJars(dir) {
+  const out = [];
+  let files = []; try { files = fs.readdirSync(dir).filter(f => /\.jar(\.disabled)?$/i.test(f)); } catch { return out; }
+  for (const f of files) { if (!jarOk(path.join(dir, f))) { try { fs.unlinkSync(path.join(dir, f)); out.push(f); } catch {} } await new Promise(r => setImmediate(r)); }
+  if (out.length) log('Mods dañados quitados de ' + dir + ': ' + out.join(', '));
+  return out;
 }
 async function pool(items, n, fn) {
   let i = 0;
@@ -249,7 +298,7 @@ async function mrInstall(idOrSlug, t, done = new Set(), versionId = null) {   //
   if ((await installedIds(t.mods)).has(v.project_id)) return false;   // ya está: no duplicar jamás
   log('Instalando ' + f.filename);
   const dest = path.join(t.mods, f.filename);
-  await dl(f.url, dest, 'Instalando ' + f.filename);
+  await dl(f.url, dest, 'Instalando ' + f.filename, 3, f.hashes && f.hashes.sha1);
   mcache()[f.hashes.sha1] = { projectId: v.project_id, ver: v.version_number, url: f.url };
   for (const d of v.dependencies || [])
     if (d.dependency_type === 'required' && d.project_id) {
@@ -269,7 +318,7 @@ async function safeMrInstall(idOrSlug, t, force) {
   fs.mkdirSync(tmpd, { recursive: true });
   try {
     try { await ensureFabric(t.mc); } catch {}   // para comprobar con el Fabric Loader más nuevo, que es el que se usará
-    await dl(f.url, tf, 'Descargando ' + f.filename);
+    await dl(f.url, tf, 'Descargando ' + f.filename, 3, f.hashes && f.hashes.sha1);
     const meta = compat.readMeta(tf), got = [];
     prog('Preparando lo que necesita ' + ((meta && meta.name) || f.filename), 60);
     const done = new Set([v.project_id]);
@@ -318,7 +367,7 @@ async function installDep(dep, t) {   // true si ha instalado algo que da «dep�
     if (!v || have.has(v.project_id)) return false;
     const f = primary(v), tf = path.join(tmp, f.filename);
     try {
-      await dl(f.url, tf, 'Descargando ' + f.filename);
+      await dl(f.url, tf, 'Descargando ' + f.filename, 3, f.hashes && f.hashes.sha1);
       if (!metaHas(compat.readMeta(tf), dep)) return false;
       fs.copyFileSync(tf, path.join(t.mods, f.filename));
       mcache()[f.hashes.sha1] = { projectId: v.project_id, ver: v.version_number, url: f.url }; saveMcache();
@@ -1301,11 +1350,49 @@ const COORD = /^~?-?\d+(\.\d+)?$|^~$/;
 // ---------- comandos con «!» en el chat (los gestiona Compass leyendo la consola) ----------
 // !tp (inmediato o pidiendo permiso al otro con !tpaccept / !tpdeny), !sethome / !home / !delhome / !homes,
 // y «!» a secas para ver la lista. Funciona igual en Fabric, Paper y Arclight, sin mods.
-const CMDS0 = { tp: 'perm', tpAsk: false, home: 'off', homes: 3 };
-const cmdsOf = s => ({ ...CMDS0, ...(s.cmds || {}) });
+// tpa: pedir ir hasta otro (el otro acepta) · ctp: como el /tp normal pero sin ser OP · home: casas
+// wait: segundos de cuenta atrás antes de teletransportar · cool: segundos entre teletransportes · tpaTime: segundos para aceptar un tpa
+const CMDS0 = { tpa: 'all', ctp: 'perm', home: 'all', homes: 3, wait: 3, cool: 10, tpaTime: 60, mod: true };
+const cmdsOf = s => {
+  const c = { ...(s.cmds || {}) };
+  if (c.tp && !c.ctp) c.ctp = c.tp;   // ajustes de la 5.3 («!tp»): el permiso de TP pasa a ser el de /ctp
+  delete c.tp; delete c.tpAsk;
+  return { ...CMDS0, ...c };
+};
+function cmdsClean(c) {
+  const pick = (v, l, d) => l.includes(v) ? v : d, num = (v, a, b, d) => { v = Math.round(+v); return Number.isFinite(v) ? Math.max(a, Math.min(b, v)) : d; };
+  return { tpa: pick(c.tpa, ['off', 'all'], 'all'), ctp: pick(c.ctp, ['off', 'perm', 'all'], 'perm'), home: pick(c.home, ['off', 'perm', 'all'], 'all'),
+    homes: num(c.homes, 1, 50, 3), wait: num(c.wait, 0, 30, 3), cool: num(c.cool, 0, 3600, 10), tpaTime: num(c.tpaTime, 10, 600, 60), mod: c.mod !== false };
+}
 const homesFile = s => path.join(sdir(s), 'compass-homes.json');
 const homesAll = s => { try { return JSON.parse(fs.readFileSync(homesFile(s), 'utf8')) || {}; } catch { return {}; } };
 const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(homesFile(s), JSON.stringify(h, null, 2)); };
+// Mod «Compass: comandos» (mod/): los mismos comandos con «/» y autocompletado en servidores Fabric 1.20 – 1.21.x y 26.1.
+// El mod solo registra los comandos y avisa por la consola con una clave; lo demás lo hace chatCmd, igual que con «!».
+const CMD_MOD = 'compass-comandos.jar';
+const cmdModFile = mc => /^1\.(20|21)(\.|$)/.test(mc) ? 'compass-comandos-1.20.jar' : /^26\.1(\.|$)/.test(mc) ? 'compass-comandos-26.1.jar' : null;
+const cmdModSrc = f => [path.join(process.resourcesPath || '', 'mod', f), path.join(__dirname, 'build', 'mod', f)].find(x => { try { return fs.statSync(x).isFile(); } catch { return false; } });
+function cmdCfgWrite(s, token) {
+  const C = cmdsOf(s), f = path.join(sdir(s), 'compass-cmds.json');
+  let old = {}; try { old = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
+  try { fs.writeFileSync(f, JSON.stringify({ token: token || old.token || '', tpa: C.tpa, ctp: C.ctp, home: C.home, homes: C.homes }, null, 2)); } catch {}
+}
+async function cmdModSetup(s, r) {
+  const mdir = path.join(sdir(s), 'mods'), dst = path.join(mdir, CMD_MOD);
+  const file = (s.type || 'fabric') === 'fabric' && cmdModFile(s.mc), src = file && cmdModSrc(file);
+  if (!src || (s.cmds && s.cmds.mod === false)) { for (const n of [dst, dst + '.disabled']) try { fs.unlinkSync(n); } catch {} r.cmdMod = false; return; }
+  try {
+    const sum = f => crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex');
+    if (!fs.existsSync(dst) || sum(dst) !== sum(src)) fs.copyFileSync(src, dst);
+    try { fs.unlinkSync(dst + '.disabled'); } catch {}
+    // necesita Fabric API
+    let fapi = false;
+    for (const i of await listLocal(mdir)) { const m = metaOf(path.join(mdir, i.file), i.sha1); if (m && m.id === 'fabric-api' && i.enabled) fapi = true; }
+    if (!fapi) { srvOut('[Compass] Instalando Fabric API para los comandos con /…\n'); await mrInstall('fabric-api', tgt({ kind: 'server', id: s.id })); }
+    r.cmdToken = crypto.randomBytes(8).toString('hex'); r.cmdMod = true;
+    cmdCfgWrite(s, r.cmdToken);
+  } catch (e) { log('Mod de comandos: ' + e.message); for (const n of [dst]) try { fs.unlinkSync(n); } catch {} r.cmdMod = false; }
+}
 const homeList = s => { try { return JSON.parse(fs.readFileSync(path.join(sdir(s), 'compass-home-perm.json'), 'utf8')).filter(x => x && x.name); } catch { return []; } };
 const homeHas = (s, n) => homeList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
 const tpReq = new Map();   // destino (minúsculas) → { from, t }
@@ -1313,10 +1400,17 @@ const dataWait = [];       // respuestas de «data get entity» que se esperan
 function waitData(who, what, ms = 4000) {
   return new Promise((res, rej) => { const w = { who: who.toLowerCase(), what, res, t: setTimeout(() => { dataWait.splice(dataWait.indexOf(w), 1); rej(new Error('sin respuesta')); }, ms) }; dataWait.push(w); });
 }
+// mensajes con el estilo del launcher: «✦ Compass ›» en ámbar y el texto detrás
+const CP_COLOR = '#ffb84d', CP_PRE = [{ text: '\u2726 ', color: CP_COLOR }, { text: 'Compass', color: CP_COLOR, bold: true }, { text: ' \u203a ', color: 'dark_gray' }];
+const rawJson = v => JSON.stringify(v).replace(/[^\x00-\x7f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'));
+const hover = t => t ? { hoverEvent: { action: 'show_text', contents: t }, hover_event: { action: 'show_text', value: t } } : {};
+function say(who, text, color = 'white', extra = []) { srvCmd(`tellraw ${who} ${rawJson(['', ...CP_PRE, { text: String(text), color }, ...extra])}`); }
 function chatBtns(who, text, btns) {   // mensaje con botones que rellenan el chat (el jugador solo tiene que pulsar Enter)
-  const parts = [{ text: '[Compass] ' + text + ' ', color: 'aqua' }, ...btns.map(([label, cmd, color]) => ({ text: '[' + label + '] ', color, bold: true, clickEvent: { action: 'suggest_command', value: cmd }, click_event: { action: 'suggest_command', command: cmd } }))];
-  srvCmd(`tellraw ${who} ${JSON.stringify(parts).replace(/[^\x00-\x7f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
+  const parts = ['', ...CP_PRE, { text: text ? text + ' ' : '', color: 'white' }, ...btns.map(([label, cmd, color, tip]) => ({ text: '[' + label + '] ', color, bold: true, clickEvent: { action: 'suggest_command', value: cmd }, click_event: { action: 'suggest_command', command: cmd }, ...hover(tip || cmd) }))];
+  srvCmd(`tellraw ${who} ${rawJson(parts)}`);
 }
+const actionbar = (who, text, color = CP_COLOR) => srvCmd(`title ${who} actionbar ${rawJson({ text, color })}`);
+const tpSound = who => srvCmd(`execute at ${who} run playsound minecraft:entity.enderman.teleport player ${who} ~ ~ ~ 0.6 1.2`);
 async function playerPos(who) {
   const pos = waitData(who, 'pos'); srvCmd(`data get entity ${who} Pos`);
   const p = await pos;
@@ -1331,6 +1425,9 @@ function handleTpChat(s, text) {
     if (d) { const w = dataWait.find(x => x.who === d[1].toLowerCase() && x.what === 'pos'); if (w) { clearTimeout(w.t); dataWait.splice(dataWait.indexOf(w), 1); w.res([+d[2], +d[3], +d[4]]); } continue; }
     d = /(\w{3,16}) has the following entity data: "([\w:/.-]+)"/.exec(line);
     if (d) { const w = dataWait.find(x => x.who === d[1].toLowerCase() && x.what === 'dim'); if (w) { clearTimeout(w.t); dataWait.splice(dataWait.indexOf(w), 1); w.res(d[2]); } continue; }
+    // línea del mod de comandos: «[CompassCmd:clave] Nombre comando…» (la clave cambia en cada arranque: nadie la puede imitar desde el chat)
+    const k = /\[CompassCmd:([0-9a-f]{16})\] (\w{3,16}) (.+)$/.exec(line);
+    if (k) { if (run && run.cmdToken && k[1] === run.cmdToken) chatCmd(s, k[2], '!' + k[3].trim(), '/').catch(e => log('Comando /: ' + e.message)); continue; }
     // «[hh:mm:ss] [Server thread/INFO]: <Nombre> mensaje» (con o sin «(Minecraft)» y «[Not Secure]»).
     // El nombre es el PRIMER <…> de la línea: lo pone el servidor, el jugador no lo puede falsificar.
     const m = /^(?:\[[^\]]*\]\s*)+(?:\([^)]*\)\s*)?:?\s*(?:\[Not Secure\]\s*)?<(\w{3,16})>\s(.*)$/.exec(line);
@@ -1340,61 +1437,111 @@ function handleTpChat(s, text) {
     chatCmd(s, who, msg).catch(e => log('Comando !: ' + e.message));
   }
 }
-async function chatCmd(s, who, msg) {
-  const C = cmdsOf(s), tell = (t, c = 'aqua') => chat(who, '[Compass] ' + t, c);
-  const [cmd0, ...a] = msg.slice(1).trim().split(/\s+/), cmd = (cmd0 || '').toLowerCase();
-  const canTp = C.tp === 'all' || (C.tp === 'perm' && tpHas(s, who));
+const tpLast = new Map();   // jugador (minúsculas) → último teletransporte (para el tiempo entre teletransportes)
+const tpBusy = new Set();    // jugadores con una cuenta atrás en marcha
+const coolLeft = (s, who) => Math.ceil(((tpLast.get(who.toLowerCase()) || 0) + cmdsOf(s).cool * 1000 - Date.now()) / 1000);
+// teletransporte con cuenta atrás (encima de la barra rápida), sonido y tiempo de espera entre uno y otro
+async function tpGo(s, who, cmd, done, cv = t => t) {
+  const C = cmdsOf(s), k = who.toLowerCase(), online = n => (run && run.players || []).some(x => x.toLowerCase() === n.toLowerCase());
+  const left = coolLeft(s, who);
+  if (left > 0) { say(who, cv(`Espera ${left} s para volver a teletransportarte.`), 'gray'); return false; }
+  if (tpBusy.has(k)) { say(who, 'Ya tienes un teletransporte en marcha.', 'gray'); return false; }
+  tpBusy.add(k);
+  try {
+    for (let i = C.wait; i > 0; i--) { actionbar(who, `✦ Teletransporte en ${i}…`); await sleep(1000); if (!online(who)) return false; }
+    srvCmd(cmd); tpSound(who); actionbar(who, '✦ ' + done); tpLast.set(k, Date.now());
+    return true;
+  } finally { tpBusy.delete(k); }
+}
+async function chatCmd(s, who, msg, via = '!') {
+  // con el mod puesto, las respuestas enseñan los comandos con «/» (los de «!» siguen funcionando igual)
+  const slash = via === '/' || !!(run && run.cmdMod), cv = t => slash ? String(t).replace(/!(\w+)/g, '/$1') : t;
+  const C = cmdsOf(s), tell = (t, c = 'white') => say(who, cv(t), c === 'aqua' ? 'white' : c);
+  const btns = (to, text, list) => chatBtns(to, cv(text), list.map(([l, c, col, tip]) => [cv(l), cv(c), col, tip]));
+  let [cmd0, ...a] = msg.slice(1).trim().split(/\s+/); let cmd = (cmd0 || '').toLowerCase(); a = a.filter(Boolean);
+  const canTpa = C.tpa === 'all';
+  const canCtp = C.ctp === 'all' || (C.ctp === 'perm' && tpHas(s, who));
   const canHome = C.home === 'all' || (C.home === 'perm' && homeHas(s, who));
   const online = n => (run && run.players || []).find(x => x.toLowerCase() === String(n).toLowerCase());
-  if (!cmd || cmd === 'ayuda' || cmd === 'help' || cmd === 'comandos') {   // «!» a secas: lo que puede usar este jugador
+  if (cmd === 'tp') cmd = canCtp ? 'ctp' : 'tpa';   // «!tp» de antes: /ctp si tiene permiso, si no /tpa
+  if (!cmd || ['ayuda', 'help', 'comandos', 'compass'].includes(cmd)) {   // lo que puede usar este jugador
     const l = [];
-    if (canTp) l.push(['!tp Nombre', C.tpAsk ? 'pide ir hasta otro jugador' : 'ir hasta otro jugador'], ['!tp x y z', 'ir a unas coordenadas']);
-    if (canTp && C.tpAsk) l.push(['!tpaccept / !tpdeny', 'aceptar o rechazar un TP']);
+    if (canTpa) l.push(['!tpa Nombre', 'pedir ir hasta otro jugador (tiene que aceptar)'], ['!tpaccept', 'aceptar un tpa'], ['!tpdeny', 'rechazar un tpa']);
+    if (canCtp) l.push(['!ctp Nombre', 'ir directo hasta alguien'], ['!ctp x y z', 'ir a unas coordenadas'], ['!ctp Nombre Otro', 'llevar a alguien hasta otro']);
     if (canHome) l.push(['!sethome [nombre]', `guardar una casa (máx. ${C.homes})`], ['!home [nombre]', 'ir a tu casa'], ['!homes', 'ver tus casas'], ['!delhome nombre', 'borrar una casa']);
-    if (!l.length) return tell('Aquí no tienes comandos con ! (el dueño del servidor los puede activar en Compass).');
-    tell('Comandos que puedes usar (pulsa uno para escribirlo):');
-    for (const [c, t] of l) chatBtns(who, '', [[c, c.split(' ')[0], 'yellow']]), chat(who, '   ' + t, 'gray');
+    if (!l.length) return say(who, 'Aquí no tienes comandos de Compass (el dueño del servidor los puede activar en Compass).', 'gray');
+    say(who, slash ? 'Tus comandos (pulsa uno, o escribe / y usa Tab):' : 'Tus comandos (pulsa uno para escribirlo):', 'white');
+    for (const [c, t] of l) {   // una línea por comando: botón amarillo (rellena el chat) y para qué sirve
+      const cmdTxt = cv(c), fill = cmdTxt.split(' ')[0] + (slash ? ' ' : '');
+      srvCmd(`tellraw ${who} ${rawJson(['', { text: '  ' }, { text: cmdTxt, color: 'yellow', clickEvent: { action: 'suggest_command', value: fill }, click_event: { action: 'suggest_command', command: fill }, ...hover('Pulsa para escribirlo') }, { text: '  ' + t, color: 'gray' }])}`);
+    }
+    const extra = [C.wait ? `${C.wait} s de cuenta atrás` : null, C.cool ? `${C.cool} s entre teletransportes` : null].filter(Boolean);
+    if (extra.length && (canTpa || canHome)) chat(who, '  ' + extra.join(' · '), 'dark_gray');
     return;
   }
-  if (cmd === 'tp') {
-    if (!canTp) return tell(C.tp === 'off' ? 'El TP está desactivado en este servidor.' : 'No tienes permiso de TP. Pídeselo al dueño del servidor.');
-    if (a.length === 1 && NAME_RE.test(a[0])) {
-      if (a[0].toLowerCase() === who.toLowerCase()) return tell('Ya estás contigo mismo :)');
-      const on = online(a[0]); if (!on) return tell(a[0] + ' no está conectado.');
-      if (C.tpAsk) {
-        tpReq.set(on.toLowerCase(), { from: who, t: Date.now() });
-        chatBtns(on, `${who} quiere teletransportarse hasta ti.`, [['Aceptar', '!tpaccept', 'green'], ['Rechazar', '!tpdeny', 'red']]);
-        return tell(`Le he pedido permiso a ${on}. Tiene 60 segundos para aceptar.`);
-      }
-      srvCmd(`tp ${who} ${on}`); srvOut(`[Compass] TP: ${who} → ${on}\n`); return tell('Teletransportado a ' + on);
-    }
-    if (a.length === 3 && a.every(x => COORD.test(x))) { srvCmd(`execute as ${who} at ${who} run tp ${who} ${a.join(' ')}`); srvOut(`[Compass] TP: ${who} → ${a.join(' ')}\n`); return tell('Teletransportado a ' + a.join(' ')); }
-    return tell('Uso: !tp Nombre  o  !tp x y z');
+  if (cmd === 'tpa') {
+    if (!canTpa) return tell('El /tpa está desactivado en este servidor.', 'gray');
+    if (a.length !== 1 || !NAME_RE.test(a[0])) return tell('Uso: !tpa Nombre', 'gray');
+    if (a[0].toLowerCase() === who.toLowerCase()) return tell('Ya estás contigo mismo :)', 'gray');
+    const on = online(a[0]); if (!on) return tell(a[0] + ' no está conectado.', 'gray');
+    const left = coolLeft(s, who); if (left > 0) return tell(`Espera ${left} s para volver a teletransportarte.`, 'gray');
+    tpReq.set(on.toLowerCase(), { from: who, t: Date.now() });
+    btns(on, `${who} quiere teletransportarse hasta ti.`, [['Aceptar', '!tpaccept', 'green', 'Aceptar el teletransporte'], ['Rechazar', '!tpdeny', 'red', 'Rechazar el teletransporte']]);
+    srvCmd(`execute at ${on} run playsound minecraft:block.note_block.pling player ${on} ~ ~ ~ 0.7 1.4`);
+    return tell(`Le he pedido permiso a ${on}. Tiene ${C.tpaTime} segundos para aceptar.`);
   }
   if (cmd === 'tpaccept' || cmd === 'tpdeny' || cmd === 'tpsi' || cmd === 'tpno') {
     const r = tpReq.get(who.toLowerCase()); tpReq.delete(who.toLowerCase());
-    if (!r || Date.now() - r.t > 60000) return tell('No tienes ninguna petición de TP pendiente.');
-    if (cmd === 'tpdeny' || cmd === 'tpno') { chat(r.from, `[Compass] ${who} ha rechazado tu TP.`, 'red'); return tell('Rechazado.'); }
-    if (!online(r.from)) return tell(r.from + ' ya no está conectado.');
-    srvCmd(`tp ${r.from} ${who}`); srvOut(`[Compass] TP aceptado: ${r.from} → ${who}\n`);
-    chat(r.from, `[Compass] ${who} ha aceptado: teletransportado.`, 'green'); return tell('Aceptado.');
+    if (!r || Date.now() - r.t > C.tpaTime * 1000) return tell('No tienes ninguna petición de TP pendiente.', 'gray');
+    if (cmd === 'tpdeny' || cmd === 'tpno') { say(r.from, `${who} ha rechazado tu TP.`, 'red'); return tell('Rechazado.', 'gray'); }
+    if (!online(r.from)) return tell(r.from + ' ya no está conectado.', 'gray');
+    say(r.from, `${who} ha aceptado.` + (C.wait ? ` Te teletransporto en ${C.wait} s.` : ''), 'green'); tell('Aceptado.', 'green');
+    if (await tpGo(s, r.from, `tp ${r.from} ${who}`, 'Con ' + who, cv)) srvOut(`[Compass] TPA: ${r.from} → ${who}\n`);
+    return;
+  }
+  if (cmd === 'ctp') {   // como el /tp normal: inmediato y también para mover a otros
+    if (!canCtp) return tell(C.ctp === 'off' ? 'El /ctp está desactivado en este servidor.' : 'No tienes permiso de /ctp. Pídeselo al dueño del servidor.', 'gray');
+    const go = (cmdline, label, mover) => { srvCmd(cmdline); tpSound(mover); actionbar(mover, '✦ ' + label); srvOut(`[Compass] CTP (${who}): ${mover} → ${label}\n`); };
+    const isName = x => NAME_RE.test(x) && !COORD.test(x);
+    if (a.length === 1 && isName(a[0])) {
+      if (a[0].toLowerCase() === who.toLowerCase()) return tell('Ya estás contigo mismo :)', 'gray');
+      const on = online(a[0]); if (!on) return tell(a[0] + ' no está conectado.', 'gray');
+      go(`tp ${who} ${on}`, on, who); return;
+    }
+    if (a.length === 3 && a.every(x => COORD.test(x))) { go(`execute as ${who} at ${who} run tp ${who} ${a.join(' ')}`, a.join(' '), who); return; }
+    if (a.length === 2 && isName(a[0]) && isName(a[1])) {
+      const A = online(a[0]), B = online(a[1]); if (!A) return tell(a[0] + ' no está conectado.', 'gray'); if (!B) return tell(a[1] + ' no está conectado.', 'gray');
+      go(`tp ${A} ${B}`, B, A); if (A.toLowerCase() !== who.toLowerCase()) { say(A, `${who} te ha llevado hasta ${B}.`, 'gray'); tell(`${A} → ${B}`, 'green'); } return;
+    }
+    if (a.length === 4 && isName(a[0]) && a.slice(1).every(x => COORD.test(x))) {
+      const A = online(a[0]); if (!A) return tell(a[0] + ' no está conectado.', 'gray');
+      go(`execute as ${A} at ${A} run tp ${A} ${a.slice(1).join(' ')}`, a.slice(1).join(' '), A); if (A.toLowerCase() !== who.toLowerCase()) tell(`${A} → ${a.slice(1).join(' ')}`, 'green'); return;
+    }
+    return tell('Uso: !ctp Nombre · !ctp x y z · !ctp Nombre Otro · !ctp Nombre x y z', 'gray');
   }
   if (['sethome', 'home', 'homes', 'delhome'].includes(cmd)) {
-    if (!canHome) return tell(C.home === 'off' ? 'Las casas (!home) están desactivadas en este servidor.' : 'No tienes permiso para usar !home. Pídeselo al dueño del servidor.');
+    if (!canHome) return tell(C.home === 'off' ? 'Las casas están desactivadas en este servidor.' : 'No tienes permiso para usar casas. Pídeselo al dueño del servidor.', 'gray');
     const all = homesAll(s), key = who.toLowerCase(), mine = all[key] || {}, name = (a[0] || 'casa').toLowerCase().replace(/[^\wñáéíóú-]/gi, '').slice(0, 16) || 'casa';
-    if (cmd === 'homes') { const n = Object.keys(mine); return tell(n.length ? 'Tus casas: ' + n.join(', ') : 'No tienes casas. Usa !sethome'); }
-    if (cmd === 'delhome') { if (!mine[name]) return tell('No tienes ninguna casa llamada ' + name); delete mine[name]; all[key] = mine; homesSave(s, all); return tell('Casa ' + name + ' borrada.'); }
+    if (cmd === 'homes') {
+      const n = Object.keys(mine);
+      if (!n.length) return tell('No tienes casas. Usa !sethome');
+      return btns(who, `Tus casas (${n.length}/${C.homes}):`, n.map(h => [h, (slash ? '/' : '!') + 'home ' + h, 'yellow', 'Ir a ' + h]));
+    }
+    if (cmd === 'delhome') { if (!a[0]) return tell('Uso: !delhome nombre', 'gray'); if (!mine[name]) return tell('No tienes ninguna casa llamada ' + name, 'gray'); delete mine[name]; all[key] = mine; homesSave(s, all); return tell('Casa ' + name + ' borrada.'); }
     if (cmd === 'sethome') {
-      if (!mine[name] && Object.keys(mine).length >= C.homes) return tell(`Ya tienes ${C.homes} casa(s), el máximo. Borra una con !delhome nombre.`);
-      let p; try { p = await playerPos(who); } catch { return tell('No he podido leer dónde estás. Prueba otra vez.'); }
+      if (!mine[name] && Object.keys(mine).length >= C.homes) return tell(`Ya tienes ${C.homes} casa(s), el máximo. Borra una con !delhome nombre.`, 'gray');
+      let p; try { p = await playerPos(who); } catch { return tell('No he podido leer dónde estás. Prueba otra vez.', 'gray'); }
       mine[name] = p; all[key] = mine; homesSave(s, all);
+      srvCmd(`execute at ${who} run playsound minecraft:block.note_block.chime player ${who} ~ ~ ~ 0.7 1.2`);
       return tell(`Casa «${name}» guardada en ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.z)}.`, 'green');
     }
     const h = mine[name] || (a[0] ? null : Object.values(mine)[0]);
-    if (!h) return tell(a[0] ? 'No tienes ninguna casa llamada ' + name : 'No tienes casas. Usa !sethome');
-    srvCmd(`execute in ${h.dim || 'minecraft:overworld'} run tp ${who} ${h.x} ${h.y} ${h.z}`); srvOut(`[Compass] Home: ${who} → ${name}\n`);
-    return tell('Bienvenido a casa.', 'green');
+    if (!h) return tell(a[0] ? 'No tienes ninguna casa llamada ' + name : 'No tienes casas. Usa !sethome', 'gray');
+    const hn = mine[name] ? name : Object.keys(mine)[0];
+    if (await tpGo(s, who, `execute in ${h.dim || 'minecraft:overworld'} run tp ${who} ${h.x} ${h.y} ${h.z}`, 'Bienvenido a casa', cv)) srvOut(`[Compass] Home: ${who} → ${hn}\n`);
+    return;
   }
+  if (via === '/' || /^[a-z]{2,12}$/.test(cmd)) return tell('No conozco ese comando. Escribe !compass para ver los tuyos.', 'gray');
 }
 
 // ---------- personalización de la ventana: tamaño y cristal de Windows 11 ----------
@@ -1613,6 +1760,9 @@ async function srvSpawn(s, r) {
   catch (e) { stopGate(); log('Puerta: ' + e.message); srvOut(`[Compass] El puerto ${GAME_PORT} está ocupado: tus amigos necesitarán el código CMP para recibir los mods.\n`); }
   if (!alive()) return;
   setProps(s, { 'server-port': port, 'server-ip': bind });
+  if (s.type !== 'paper') { const bad = await dropBrokenJars(mdir); if (bad.length) { srvOut(`[Compass] Mods dañados quitados: ${bad.join(', ')}. Vuelvo a bajar lo que haga falta…\n`); try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} } }
+  try { await cmdModSetup(srv(s.id) || s, r); } catch (e) { log('Mod de comandos: ' + e.message); }
+  if (!alive()) return;
   if (s.type !== 'paper') for (const i of await listLocal(mdir)) if (i.enabled) {     // los mods solo de cliente no van en un servidor
     const m = metaOf(path.join(mdir, i.file), i.sha1);
     if (m && m.env === 'client') { fs.renameSync(path.join(mdir, i.file), path.join(mdir, i.file + '.disabled')); srvOut(`[Compass] ${i.file} es solo de cliente: desactivado en el servidor\n`); }
@@ -1628,7 +1778,7 @@ async function srvSpawn(s, r) {
     for (const m of t.matchAll(/:\s(\w{3,16}) joined the game/g)) {
       hset({ players: [...new Set([...r.players, m[1]])] });
       const w = (srv(s.id) || s).welcome; if (w) setTimeout(() => chat(m[1], w.replace(/\{jugador\}/gi, m[1]), 'gold'), 1500);
-      if (tpHas(s, m[1])) setTimeout(() => chat(m[1], '[Compass] Tienes permiso de TP: escribe !tp Nombre o !tp x y z', 'aqua'), 2500);
+      if (tpHas(s, m[1])) setTimeout(() => say(m[1], r.cmdMod ? 'Tienes permiso de /ctp: escribe /ctp Nombre o /ctp x y z' : 'Tienes permiso de !ctp: escribe !ctp Nombre o !ctp x y z'), 2500);
     }
     for (const m of t.matchAll(/:\s(\w{3,16}) left the game/g)) hset({ players: r.players.filter(x => x !== m[1]) });
   };
@@ -1863,6 +2013,7 @@ async function syncOwn(p) {
   const s = srv(p.own); if (!s) throw new Error('Ese servidor ya no existe');
   prog('Copiando los mods de tu servidor', 10);
   const dir = path.join(pdir(p), 'mods'), sm = path.join(sdir(s), 'mods'); fs.mkdirSync(dir, { recursive: true });
+  if ((await dropBrokenJars(sm)).length) { try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} }
   // Se leen directamente de la carpeta del servidor (sin internet): los activados que no son solo de servidor
   // y también los solo de cliente, que el servidor desactiva al arrancar (.disabled) pero tú sí necesitas.
   const want = new Set(), keepMine = new Set(p.keepMine || []), mine = new Map();
@@ -2428,7 +2579,7 @@ const H = {
   serverSet: async (id, patch) => {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
     for (const k of ['name', 'mc', 'ram', 'mode', 'autoRestart', 'shareWorld', 'welcome', 'desc', 'color', 'type']) if (k in patch) s[k] = patch[k];
-    if (patch.cmds && typeof patch.cmds === 'object') { const c = { ...cmdsOf(s), ...patch.cmds }; s.cmds = { tp: ['off', 'perm', 'all'].includes(c.tp) ? c.tp : 'perm', tpAsk: !!c.tpAsk, home: ['off', 'perm', 'all'].includes(c.home) ? c.home : 'off', homes: Math.max(1, Math.min(10, +c.homes || 3)) }; }
+    if (patch.cmds && typeof patch.cmds === 'object') { s.cmds = cmdsClean({ ...cmdsOf(s), ...patch.cmds }); try { cmdCfgWrite(s); } catch {} }
     if (!['paper', 'hybrid'].includes(s.type)) s.type = 'fabric';
     s.welcome = String(s.welcome || '').replace(/[\r\n]+/g, ' ').slice(0, 200); s.desc = String(s.desc || '').slice(0, 300);
     if (s.color && !/^#[0-9a-f]{6}$/i.test(s.color)) delete s.color;
@@ -2593,6 +2744,8 @@ const H = {
     setGame('preparing');
     try {
       await ensureLogin(true);
+      const broken = await dropBrokenJars(t.mods);
+      if (broken.length) toast(broken.length > 1 ? `Había ${broken.length} mods dañados (${broken.join(', ')}): los vuelvo a descargar.` : `El mod ${broken[0]} estaba dañado: lo vuelvo a descargar.`, 'warn', 7000);
       if (p.own) {   // tu propio servidor: mismos mods y versión que el servidor, copiados de su carpeta
         try { await syncOwn(p); }
         catch (e) { throw new Error('No he podido preparar los mods de tu servidor: ' + e.message + '. Sin ellos no podrías entrar.'); }
@@ -2630,6 +2783,15 @@ const H = {
         if (minimizedForGame && win && !win.isDestroyed()) { minimizedForGame = false; if (win.isMinimized()) win.restore(); win.show(); win.focus(); }
         if (!code) return;
         // Fabric enseña su propia ventana de error y espera a que la cierres: por eso no hay límite de tiempo aquí
+        // un .jar dañado («Error analyzing [...jar]: java.util.zip.ZipException»): se borra y se vuelve a bajar
+        const zb = /Error analyzing \[([^\]]+?\.jar)\][^\n]*?Zip/i.exec(out) || (() => { try { const lf = path.join(pdir(p), 'logs', 'latest.log'); return fs.existsSync(lf) && fs.statSync(lf).mtimeMs >= t0 ? /Error analyzing \[([^\]]+?\.jar)\][^\n]*?Zip/i.exec(fs.readFileSync(lf, 'utf8').slice(-80000)) : null; } catch { return null; } })();
+        if (zb) {
+          const bad = path.basename(zb[1]); try { fs.unlinkSync(path.join(t.mods, bad)); } catch {}
+          await dropBrokenJars(t.mods);
+          try { prog('Arreglando los mods', 50); await resolveDeps(tgt({ kind: 'profile', id: pid }), true); } catch {} prog('', 0);
+          send('gameFail', { pid, lines: [`El archivo ${bad} estaba dañado (se bajó mal).`], fixed: [bad.replace(/\.jar$/i, '')], failed: [], server: o.server || null });
+          return;
+        }
         let ff = fabricFail(out);
         if (!ff) { try { const lf = path.join(pdir(p), 'logs', 'latest.log'); if (fs.existsSync(lf) && fs.statSync(lf).mtimeMs >= t0) ff = fabricFail(fs.readFileSync(lf, 'utf8').slice(-80000)); } catch {} }
         if (!ff) { if (Date.now() - t0 < 60000) toast('Minecraft se cerró con un error. Puedes ver el motivo en Ajustes, Registro.', 'error'); return; }
@@ -2671,7 +2833,7 @@ function worldDirOf(ref) {   // ref: { kind: 'server', id, world? } | { kind: 'l
 const mapCacheDir = wd => path.join(U(), 'mapcache', crypto.createHash('sha1').update(wd).digest('hex').slice(0, 16));
 const tileJobs = new Map();
 async function tile(wd, x, z) {   // PNG (y alturas) de una región, con caché por fecha de modificación
-  const src = path.join(wd, 'region', `r.${x}.${z}.mca`), cd = mapCacheDir(wd), png = path.join(cd, `r.${x}.${z}.png`), hf = path.join(cd, `r.${x}.${z}.h`);
+  const src = path.join(WM.regionDir(wd), `r.${x}.${z}.mca`), cd = mapCacheDir(wd), png = path.join(cd, `r.${x}.${z}.png`), hf = path.join(cd, `r.${x}.${z}.h`);
   if (!fs.existsSync(src)) return null;
   const mt = fs.statSync(src).mtimeMs;
   if (fs.existsSync(png) && fs.existsSync(hf) && fs.statSync(png).mtimeMs >= mt) return { png, hf };
@@ -2974,9 +3136,9 @@ Object.assign(H, {
       case 'tpAdd': {
         if (tpHas(s, name)) return;
         const l = tpList(s); l.push({ name }); tpSave(s, l);
-        if (live) chat(name, '[Compass] Ya puedes teletransportarte: escribe en el chat !tp Nombre o !tp x y z', 'aqua'); return; }
+        if (live) say(name, run && run.cmdMod ? 'Ya puedes usar /ctp: escribe /ctp Nombre o /ctp x y z' : 'Ya puedes usar !ctp: escribe !ctp Nombre o !ctp x y z'); return; }
       case 'tpRemove': tpSave(s, tpList(s).filter(x => x.name.toLowerCase() !== name.toLowerCase())); return;
-      case 'homeAdd': { const f = path.join(d, 'compass-home-perm.json'), l = homeList(s); if (!l.some(x => x.name.toLowerCase() === name.toLowerCase())) { l.push({ name }); jwrite(f, l); } if (live) chat(name, '[Compass] Ya puedes guardar casas: escribe !sethome y luego !home', 'aqua'); return; }
+      case 'homeAdd': { const f = path.join(d, 'compass-home-perm.json'), l = homeList(s); if (!l.some(x => x.name.toLowerCase() === name.toLowerCase())) { l.push({ name }); jwrite(f, l); } if (live) say(name, run && run.cmdMod ? 'Ya puedes guardar casas: escribe /sethome y luego /home' : 'Ya puedes guardar casas: escribe !sethome y luego !home'); return; }
       case 'homeRemove': { const f = path.join(d, 'compass-home-perm.json'); jwrite(f, homeList(s).filter(x => x.name.toLowerCase() !== name.toLowerCase())); return; }
       case 'kick': if (!live) throw new Error('El servidor no está encendido'); return cmd('kick ' + name + (reason ? ' ' + reason : ''));
       case 'gamemode': if (!live) throw new Error('El servidor no está encendido'); if (!['survival', 'creative', 'adventure', 'spectator'].includes(a.mode)) throw new Error('Modo no válido'); return cmd(`gamemode ${a.mode} ${name}`);

@@ -18,7 +18,7 @@ Latest version on **[Releases](https://github.com/luckicla/compass-launcher/rele
 
 - **Play with friends**: paste their IP or code and Compass downloads the version, Fabric and every mod.
 - **Your own servers**: Fabric, Paper or both (Arclight), automatic port opening or tunnel, console, map, backups, 24/7 mode, scheduled tasks.
-- **Chat commands with `!`** for your friends: TP (instant or asking permission), homes, without mods.
+- **Chat commands** for your friends: `/tpa`, `/ctp` (like `/tp` without being OP), `/sethome`, `/home`… with Tab autocomplete thanks to the Compass server mod (Fabric 1.20, 1.21 and 26.1), or with `!` on any server. Homes per player, countdowns and cooldowns are set up in People.
 - **Store**: mods, shaders, resource packs, modpacks and maps from Modrinth and CurseForge, with dependencies resolved before installing.
 - **Every Minecraft version**, including snapshots (optional) and old versions with Legacy Fabric.
 - **Themes** with animated pixel-art backgrounds, light and dark.

@@ -1,0 +1,19 @@
+// Minecraft 26.1 (sin ofuscar): sin mappings ni reasignación
+plugins { id 'net.fabricmc.fabric-loom' version "${loom_version}" }
+version = project.mod_version
+group = 'net.luckicla'
+base { archivesName = 'compass-comandos-26.1' }
+sourceSets.main.java.srcDirs = ['../src/main/java']
+sourceSets.main.resources.srcDirs = ['../src/main/resources']
+dependencies {
+  minecraft "com.mojang:minecraft:${project.minecraft_version}"
+  implementation "net.fabricmc:fabric-loader:${project.loader_version}"
+  implementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_version}"
+}
+processResources {
+  def p = [version: project.version, mcrange: '>=26.1 <26.2']
+  inputs.properties p
+  filesMatching('fabric.mod.json') { expand p }
+}
+java { sourceCompatibility = JavaVersion.VERSION_25; targetCompatibility = JavaVersion.VERSION_25 }
+tasks.withType(JavaCompile).configureEach { it.options.release = 25; it.options.encoding = 'UTF-8' }

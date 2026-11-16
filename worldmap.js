@@ -161,18 +161,29 @@ function encodePNG(w, h, rgba) {
 }
 
 // ---------- mundo ----------
+// carpeta con el terreno del mundo normal: desde la 26.1 está en dimensions/minecraft/overworld/region; antes, en region/
+function regionDir(worldDir) {
+  const nuevo = path.join(worldDir, 'dimensions', 'minecraft', 'overworld', 'region');
+  return fs.existsSync(nuevo) ? nuevo : path.join(worldDir, 'region');
+}
+function readDat(f) { try { const b = fs.readFileSync(f); return parseNBT(b[0] === 0x1f ? zlib.gunzipSync(b) : b); } catch { return null; } }
 function levelInfo(worldDir) {
   try {
     const d = parseNBT(zlib.gunzipSync(fs.readFileSync(path.join(worldDir, 'level.dat')))).Data || {};
+    let seed = d.WorldGenSettings && d.WorldGenSettings.seed != null ? String(d.WorldGenSettings.seed) : d.RandomSeed != null ? String(d.RandomSeed) : null;
+    if (seed == null) {   // 26.1+: la semilla va en data/minecraft/world_gen_settings.dat
+      const w = readDat(path.join(worldDir, 'data', 'minecraft', 'world_gen_settings.dat'));
+      const x = w && (w.data || w);
+      if (x && x.seed != null) seed = String(x.seed);
+    }
     let spawn = null;
     if (typeof d.SpawnX === 'number') spawn = { x: d.SpawnX, y: d.SpawnY, z: d.SpawnZ };
     else if (d.spawn && Array.isArray(d.spawn.pos)) spawn = { x: d.spawn.pos[0], y: d.spawn.pos[1], z: d.spawn.pos[2] };
-    return { name: d.LevelName || path.basename(worldDir), version: d.Version && d.Version.Name || null, spawn,
-             seed: d.WorldGenSettings && d.WorldGenSettings.seed != null ? String(d.WorldGenSettings.seed) : d.RandomSeed != null ? String(d.RandomSeed) : null };
+    return { name: d.LevelName || path.basename(worldDir), version: d.Version && d.Version.Name || null, spawn, seed };
   } catch { return null; }
 }
 function listRegions(worldDir) {
-  const dir = path.join(worldDir, 'region');
+  const dir = regionDir(worldDir);
   if (!fs.existsSync(dir)) return [];
   const out = [];
   for (const f of fs.readdirSync(dir)) {
@@ -189,4 +200,4 @@ function dirSize(d, depth = 0) {
   return n;
 }
 
-module.exports = { parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };
+module.exports = { regionDir, parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };

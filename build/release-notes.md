@@ -1,9 +1,8 @@
-## Novedades de la 5.3
+## Novedades de la 5.3.1
 
-- **Idiomas**: Compass, la app del móvil y la web ahora están en español, inglés y catalán. Se elige solo según tu sistema (y lo puedes cambiar en Ajustes › Apariencia).
-- **Paisaje de Jugar personalizable**: elige entre varios paisajes en pixel art (atardecer, noche, nieve, Nether, End, mar…) o pon una imagen tuya. Clic derecho sobre el paisaje o en Ajustes › Apariencia.
-- **Eliminar servidor** desde el clic derecho de la lista de servidores.
-- **Comandos con «!» en el chat**: escribe solo «!» y te salen todos los comandos con botones para rellenarlos. Nuevos `!sethome`, `!home` y `!delhome`, y el `!tp` puede pedir permiso al otro (que acepta con un clic) o ser inmediato. Todo se regula en Gente.
-- **Sin «Un jugador» en los servidores multijugador**: en los perfiles de servidor de amigos se quita el botón (con un mod, en las versiones donde existe).
-- **Mods en versiones antiguas**: la 1.12.2 y otras versiones viejas ya pueden llevar mods (con Legacy Fabric) y la Tienda busca mods para ellas.
-- App del móvil: los iconos son los mismos que en el PC.
+- **Mod de comandos de Compass** para tus servidores Fabric (1.20, 1.21 y 26.1): `/tpa`, `/tpaccept`, `/tpdeny`, `/ctp`, `/sethome`, `/home`, `/homes`, `/delhome` y `/compass`, con **autocompletado** al pulsar Tab (nombres de jugadores y de tus casas). A cada jugador solo le salen los comandos que puede usar. Compass lo instala solo en el servidor (se puede apagar en Gente).
+- **/ctp**: como el /tp normal (a alguien, a unas coordenadas o llevar a uno hasta otro), pero se lo das a quien quieras sin hacerle OP.
+- **/tpa y las casas vienen activados** para todos.
+- **Todo se regula en Gente**: casas por jugador, cuenta atrás antes de teletransportar, tiempo entre teletransportes y tiempo para aceptar un /tpa.
+- **Más Compass dentro del juego**: mensajes con los colores del launcher, cuenta atrás encima de la barra rápida, sonidos y botones en el chat.
+- Arreglado: **el mapa** de los servidores y de la biblioteca no se veía en mundos de Minecraft 26.1.

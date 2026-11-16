@@ -3,6 +3,7 @@
 #  - Si la versión de package.json es nueva (no hay un release con ese número), se publica todo en «Releases»:
 #    los Compass instalados y la app del móvil la reciben solos.
 #  - Se actualiza la web (GitHub Pages).
+#  - El mod de comandos para servidores (mod/) se compila y se prueba en servidores Fabric de verdad (mod.yml).
 name: build
 on:
   push:
@@ -31,11 +32,19 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "nueva=no" >> "$GITHUB_OUTPUT"; else echo "nueva=si" >> "$GITHUB_OUTPUT"; fi
 
+  mod:
+    # mod de comandos para servidores Fabric (/tpa, /ctp, /home…): se compila, se prueba y va dentro de Compass
+    uses: ./.github/workflows/mod.yml
+
   win:
-    needs: info
+    needs: [info, mod]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: compass-mod
+          path: build/mod
       - uses: actions/setup-node@v4
         with:
           node-version: 20

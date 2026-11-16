@@ -1325,7 +1325,7 @@ async function tabGente(s, body) {
   const add = el('div', { class: 'panel' }, el('h3', {}, 'Añadir a alguien'), known,
     el('div', { class: 'row nw' }, name,
       el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('op', { name: n }, n + ' ahora es OP'); } }, I('crown', 14), 'Hacer OP'),
-      el('button', { class: 'btn', title: 'Solo podrá teletransportarse: nada de modo de juego ni otros comandos', onclick: () => { const n = need(); if (n) run('tpAdd', { name: n }, n + ' ya puede usar !tp'); } }, I('tp', 14), 'Dar solo TP'),
+      el('button', { class: 'btn', title: 'Solo podrá teletransportarse: nada de modo de juego ni otros comandos', onclick: () => { const n = need(); if (n) run('tpAdd', { name: n }, n + ' ya puede usar /ctp'); } }, I('tp', 14), 'Dar solo TP'),
       el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('wlAdd', { name: n }, n + ' está en la lista blanca'); } }, I('shield', 14), 'A la lista blanca'),
       el('button', { class: 'btn dng', onclick: async () => { const n = need(); if (n && await confirmBox('¿Banear a ' + n + '?', 'No podrá entrar hasta que le quites el baneo.', 'Banear')) run('ban', { name: n }, n + ' baneado'); } }, I('ban', 14), 'Banear')),
     el('p', { class: 'hint' }, live ? 'El servidor está encendido: los cambios se aplican al momento con comandos.' : 'Con el servidor apagado se editan sus archivos directamente' + (D.onlineMode ? ' (busco la cuenta en Mojang para sacar su UUID).' : '.')));
@@ -1333,10 +1333,10 @@ async function tabGente(s, body) {
   const online = el('div', { class: 'panel' }, el('h3', {}, 'Conectados ahora', el('span', { class: 'tag' + (D.online.length ? ' ok' : '') }, String(D.online.length))),
     D.online.length ? el('div', { class: 'list' }, ...D.online.map(n => { const gm = el('select', { class: 'in lvl', title: 'Modo de juego' }, el('option', { value: '' }, 'Modo de juego…'), ...[['survival', 'Supervivencia'], ['creative', 'Creativo'], ['adventure', 'Aventura'], ['spectator', 'Espectador']].map(([v, t]) => el('option', { value: v }, t)));
       gm.onchange = () => { if (gm.value) run('gamemode', { name: n, mode: gm.value }, n + ' en modo ' + gm.selectedOptions[0].textContent.toLowerCase()); };
-      return ctx(el('div', { class: 'li' }, head(n), el('div', { class: 't' }, el('b', {}, el('span', {}, n), D.ops.some(o => o.name === n) ? el('span', { class: 'tag acc' }, 'OP') : null, D.tp.some(t => t.name.toLowerCase() === n.toLowerCase()) ? el('span', { class: 'tag' }, 'TP') : null)), gm,
+      return ctx(el('div', { class: 'li' }, head(n), el('div', { class: 't' }, el('b', {}, el('span', {}, n), D.ops.some(o => o.name === n) ? el('span', { class: 'tag acc' }, 'OP') : null, D.tp.some(t => t.name.toLowerCase() === n.toLowerCase()) ? el('span', { class: 'tag' }, '/ctp') : null)), gm,
         D.tp.some(t => t.name.toLowerCase() === n.toLowerCase())
-          ? el('button', { class: 'btn sm ghost', title: 'Quitar el permiso de TP', onclick: () => run('tpRemove', { name: n }, n + ' ya no puede usar !tp') }, I('tp', 14), 'Quitar TP')
-          : el('button', { class: 'btn sm', title: 'Solo podrá teletransportarse', onclick: () => run('tpAdd', { name: n }, n + ' ya puede usar !tp') }, I('tp', 14), 'Dar TP'),
+          ? el('button', { class: 'btn sm ghost', title: 'Quitar el permiso de /ctp', onclick: () => run('tpRemove', { name: n }, n + ' ya no puede usar /ctp') }, I('tp', 14), 'Quitar /ctp')
+          : el('button', { class: 'btn sm', title: 'Podrá usar /ctp sin ser OP', onclick: () => run('tpAdd', { name: n }, n + ' ya puede usar /ctp') }, I('tp', 14), 'Dar /ctp'),
         el('button', { class: 'btn sm', title: 'Llevar al spawn', onclick: () => run('tpSpawn', { name: n }, n + ' llevado al spawn') }, I('flag', 14), 'Al spawn'),
         el('button', { class: 'btn sm', onclick: () => run('kick', { name: n }, n + ' echado') }, 'Echar'),
         el('button', { class: 'btn sm dng', onclick: async () => { if (await confirmBox('¿Banear a ' + n + '?', 'No podrá entrar hasta que le quites el baneo.', 'Banear')) run('ban', { name: n }, n + ' baneado'); } }, 'Banear')), () => playerCtx(s, n, D, () => tabGente(s, body))); }))
@@ -1349,11 +1349,11 @@ async function tabGente(s, body) {
         el('button', { class: 'btn sm ghost', onclick: () => run('deop', { name: o.name }, o.name + ' ya no es OP') }, 'Quitar OP')); }))
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie es OP todavía. Hazte OP a ti para poder usar comandos dentro del juego.'));
 
-  const tp = el('div', { class: 'panel' }, el('h3', {}, I('tp', 16), ' Permiso de TP', el('span', { class: 'tag' + (D.tp.length ? ' acc' : '') }, String(D.tp.length))),
-    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Solo pueden teletransportarse, sin ser OP: nada de modo de juego, /give ni otros comandos. En el chat del juego escriben:'),
-    el('div', { class: 'cmdhelp' }, el('code', {}, '!tp Nombre'), el('span', {}, 'ir hasta otro jugador'), el('code', {}, '!tp x y z'), el('span', {}, 'ir a unas coordenadas')),
+  const tp = el('div', { class: 'panel' }, el('h3', {}, I('tp', 16), ' Permiso de /ctp', el('span', { class: 'tag' + (D.tp.length ? ' acc' : '') }, String(D.tp.length))),
+    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Pueden usar /ctp como el /tp normal, sin ser OP: nada de modo de juego, /give ni otros comandos. En el chat escriben (o con «!» si el servidor no lleva el mod):'),
+    el('div', { class: 'cmdhelp' }, el('code', {}, '/ctp Nombre'), el('span', {}, 'ir hasta otro jugador'), el('code', {}, '/ctp x y z'), el('span', {}, 'ir a unas coordenadas'), el('code', {}, '/ctp Nombre Otro'), el('span', {}, 'llevar a alguien hasta otro')),
     D.tp.length ? el('div', { class: 'list' }, ...D.tp.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name)), el('small', {}, D.online.some(o => o.toLowerCase() === t.name.toLowerCase()) ? 'Conectado' : 'Desconectado')),
-      el('button', { class: 'btn sm ghost', onclick: () => run('tpRemove', { name: t.name }, t.name + ' ya no puede usar !tp') }, 'Quitar TP'))))
+      el('button', { class: 'btn sm ghost', onclick: () => run('tpRemove', { name: t.name }, t.name + ' ya no puede usar /ctp') }, 'Quitar'))))
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie todavía. Escribe un nombre arriba y pulsa «Dar solo TP».'));
 
   const wl = el('div', { class: 'panel' }, el('h3', {}, 'Lista blanca', el('span', { class: 'sp' }), el('label', { class: 'row nw', style: 'gap:8px;font:600 13px var(--body)' }, D.whitelistOn ? 'Activada' : 'Desactivada', sw(D.whitelistOn, v => run('whitelist', { on: v }, v ? 'Lista blanca activada: solo entran los de la lista' : 'Lista blanca desactivada')))),
@@ -1372,23 +1372,34 @@ async function tabGente(s, body) {
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie baneado. Así da gusto.'),
     el('div', { class: 'row nw', style: 'margin-top:12px' }, ip, el('button', { class: 'btn sm dng', onclick: () => { if (ip.value.trim()) run('banIp', { ip: ip.value.trim() }, 'IP baneada'); } }, I('ban', 14), 'Banear IP')));
 
-  // comandos con «!» en el chat: quién puede usarlos y cómo
-  const C = D.cmds || { tp: 'perm', tpAsk: false, home: 'off', homes: 3 };
+  // comandos de Compass en el chat («!» siempre; «/» con autocompletado si el servidor lleva el mod): quién puede usarlos, cuántas casas y los tiempos
+  const C = { tpa: 'all', ctp: 'perm', home: 'all', homes: 3, wait: 3, cool: 10, tpaTime: 60, mod: true, ...(D.cmds || {}) };
+  const modOk = (s.type || 'fabric') === 'fabric' && /^(1\.(20|21)|26\.1)(\.|$)/.test(s.mc || ''), P = modOk && C.mod !== false ? '/' : '!';
   const setC = async patch => { try { await A.call('serverSet', s.id, { cmds: { ...C, ...patch } }); Object.assign(C, patch); toast('Guardado', 'ok', 1500); tabGente(s, body); } catch (e) { toast(clean(e), 'error'); } };
-  const who = (cur, fn) => { const x = el('select', { class: 'in', style: 'width:auto', onchange: e => fn(e.target.value) }, el('option', { value: 'off' }, 'Nadie'), el('option', { value: 'perm' }, 'Solo con permiso'), el('option', { value: 'all' }, 'Todos')); x.value = cur; return x; };
-  const homesSel = el('select', { class: 'in', style: 'width:auto', onchange: e => setC({ homes: +e.target.value }) }, ...[1, 2, 3, 5, 10].map(n => el('option', { value: n }, n + (n === 1 ? ' casa' : ' casas')))); homesSel.value = C.homes;
-  const cmds = el('div', { class: 'panel' }, el('h3', {}, I('console', 16), ' Comandos con ! en el chat'),
-    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Tus amigos escriben «!» en el chat y les salen los comandos que pueden usar, con botones para escribirlos. No hace falta ningún mod.'),
-    el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'TP (!tp Nombre, !tp x y z)'), el('small', {}, 'Quién puede teletransportarse sin ser OP.')), who(C.tp, v => setC({ tp: v }))),
-    el('div', { class: 'toggle' }, sw(C.tpAsk, v => setC({ tpAsk: v })), el('div', { class: 't' }, el('b', {}, 'Pedir permiso al otro'), el('small', {}, 'El otro jugador tiene que aceptar con !tpaccept (o un clic). Si está apagado, el TP es inmediato.'))),
-    el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'Casas (!sethome, !home, !homes, !delhome)'), el('small', {}, 'Guardar sitios y volver a ellos cuando quieran.')), who(C.home, v => setC({ home: v }))),
-    C.home !== 'off' ? el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'Máximo de casas por jugador')), homesSel) : null);
+  const pick = (cur, opts, fn) => { const l = opts.some(o => o[0] === cur) ? opts : [...opts, [cur, String(cur)]]; const x = el('select', { class: 'in', style: 'width:auto', onchange: e => fn(isNaN(+e.target.value) ? e.target.value : +e.target.value) }, ...l.map(([v, t]) => el('option', { value: v }, t))); x.value = cur; return x; };
+  const who = (cur, fn) => pick(cur, [['off', 'Nadie'], ['perm', 'Solo con permiso'], ['all', 'Todos']], fn);
+  const row = (title, sub, ctl) => el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, title), sub ? el('small', {}, sub) : null), ctl);
+  const swRow = (on, fn, title, sub) => el('div', { class: 'toggle' }, sw(on, fn), el('div', { class: 't' }, el('b', {}, title), sub ? el('small', {}, sub) : null));
+  const cmds = el('div', { class: 'panel' }, el('h3', {}, I('console', 16), ' Comandos de Compass en el chat'),
+    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, P === '/' ? 'Tus amigos escriben «/» y Tab para completar, o «/compass» para ver los suyos. También funcionan con «!».' : 'Tus amigos escriben «!» en el chat y les salen los comandos que pueden usar, con botones para escribirlos.'),
+    swRow(C.tpa !== 'off', v => setC({ tpa: v ? 'all' : 'off' }), `${P}tpa Nombre`, 'Pedir ir hasta otro jugador. El otro acepta con un clic.'),
+    row(`${P}ctp`, 'Como el /tp normal (a alguien, a unas coordenadas o llevar a uno hasta otro), sin ser OP.', who(C.ctp, v => setC({ ctp: v }))),
+    row(`Casas (${P}sethome, ${P}home, ${P}homes, ${P}delhome)`, 'Guardar sitios y volver a ellos.', who(C.home, v => setC({ home: v }))),
+    C.home !== 'off' ? row('Casas por jugador', null, pick(C.homes, [1, 2, 3, 5, 10, 20, 50].map(n => [n, n === 1 ? '1 casa' : n + ' casas']), v => setC({ homes: v }))) : null,
+    el('div', { class: 'sub', style: 'margin:12px 0 4px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em' }, 'Tiempos'),
+    row('Cuenta atrás antes de teletransportar', `Para ${P}tpa y ${P}home. Sale encima de la barra rápida.`, pick(C.wait, [[0, 'Sin espera'], [3, '3 s'], [5, '5 s'], [10, '10 s']], v => setC({ wait: v }))),
+    row('Tiempo entre teletransportes', `Lo que hay que esperar para volver a usar ${P}tpa o ${P}home.`, pick(C.cool, [[0, 'Sin límite'], [10, '10 s'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [900, '15 min']], v => setC({ cool: v }))),
+    C.tpa !== 'off' ? row(`Tiempo para aceptar un ${P}tpa`, null, pick(C.tpaTime, [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']], v => setC({ tpaTime: v }))) : null,
+    modOk
+      ? swRow(C.mod !== false, v => setC({ mod: v }), 'Comandos con / y autocompletado',
+        'Pone el mod de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Se nota al reiniciar el servidor.')
+      : el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Los comandos con / y autocompletado (mod de Compass) son para servidores Fabric 1.20, 1.21 y 26.1. Aquí se usan con «!».'));
   const homes = C.home === 'perm' ? el('div', { class: 'panel' }, el('h3', {}, I('home', 16), ' Permiso de casas', el('span', { class: 'tag' + ((D.home || []).length ? ' acc' : '') }, String((D.home || []).length))),
     (D.home || []).length ? el('div', { class: 'list' }, ...D.home.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name))),
-      el('button', { class: 'btn sm ghost', onclick: () => run('homeRemove', { name: t.name }, t.name + ' ya no puede usar !home') }, 'Quitar'))))
+      el('button', { class: 'btn sm ghost', onclick: () => run('homeRemove', { name: t.name }, t.name + ' ya no puede usar casas') }, 'Quitar'))))
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie todavía. Escribe un nombre arriba y pulsa «Dar casas».')) : null;
-  if (C.home === 'perm') $('.row.nw', add).append(el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('homeAdd', { name: n }, n + ' ya puede usar !home'); } }, I('home', 14), 'Dar casas'));
-  body.replaceChildren(el('div', { class: 'stack' }, add, online, el('div', { class: 'cols' }, el('div', { class: 'stack' }, cmds, C.tp === 'perm' ? tp : null, homes, ops), el('div', { class: 'stack' }, wl, bans))));
+  if (C.home === 'perm') $('.row.nw', add).append(el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('homeAdd', { name: n }, n + ' ya puede usar casas'); } }, I('home', 14), 'Dar casas'));
+  body.replaceChildren(el('div', { class: 'stack' }, add, online, el('div', { class: 'cols' }, el('div', { class: 'stack' }, cmds, C.ctp === 'perm' ? tp : null, homes, ops), el('div', { class: 'stack' }, wl, bans))));
   body._paint = () => { if (TAB === 'gente') tabGente(s, body); };
 }
 
@@ -1613,7 +1624,7 @@ function playerCtx(s, n, D, refresh) {
   const hasTp = D && D.tp ? D.tp.some(t => t.name.toLowerCase() === n.toLowerCase()) : null, isOp = D && D.ops ? D.ops.some(o => o.name.toLowerCase() === n.toLowerCase()) : null;
   const gm = (m, t) => ({ i: 'layers', t: 'Modo ' + t, dis: !live, f: () => act2('gamemode', { mode: m }, n + ' en modo ' + t.toLowerCase()) });
   return [{ t: n, title: true },
-    hasTp ? { i: 'tp', t: 'Quitar permiso de TP', f: () => act2('tpRemove', {}, n + ' ya no puede usar !tp') } : { i: 'tp', t: 'Dar solo permiso de TP', f: () => act2('tpAdd', {}, n + ' ya puede usar !tp') },
+    hasTp ? { i: 'tp', t: 'Quitar permiso de /ctp', f: () => act2('tpRemove', {}, n + ' ya no puede usar /ctp') } : { i: 'tp', t: 'Dar permiso de /ctp', f: () => act2('tpAdd', {}, n + ' ya puede usar /ctp') },
     isOp ? { i: 'crown', t: 'Quitar OP', f: () => act2('deop', {}, n + ' ya no es OP') } : { i: 'crown', t: 'Hacer OP', f: () => act2('op', {}, n + ' ahora es OP') },
     '-', gm('survival', 'Supervivencia'), gm('creative', 'Creativo'), gm('spectator', 'Espectador'),
     { i: 'flag', t: 'Llevar al spawn', dis: !live, f: () => act2('tpSpawn', {}, n + ' llevado al spawn') },

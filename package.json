@@ -1,6 +1,6 @@
 {
   "name": "compass-launcher",
-  "version": "5.3.0",
+  "version": "5.3.1",
   "description": "Compass Launcher: juega con tus amigos y monta tus propios servidores de Minecraft con mods",
   "main": "main.js",
   "author": "luckicla",
@@ -37,6 +37,7 @@
       "!LEEME.txt",
       "!mobile/**",
       "!docs/**",
+      "!mod/**",
       "!*.md"
     ],
     "win": {
@@ -84,6 +85,15 @@
         "owner": "luckicla",
         "repo": "compass-launcher",
         "releaseType": "release"
+      }
+    ],
+    "extraResources": [
+      {
+        "from": "build/mod",
+        "to": "mod",
+        "filter": [
+          "*.jar"
+        ]
       }
     ]
   },
