@@ -4,6 +4,9 @@ const REPO = 'luckicla/compass-launcher';
 const $ = s => document.querySelector(s);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]);
 
+// idioma: el del navegador (español, catalán o inglés), o el elegido arriba
+try { if (!localStorage.getItem('cl.lang')) I18N.set(I18N.pick(navigator.language)); I18N.start(); const ls = document.getElementById('lang'); ls.value = I18N.lang; ls.onchange = () => { I18N.set(ls.value); location.reload(); }; } catch (e) { console.error(e); }
+const LOC = { es: 'es', en: 'en', ca: 'ca' }[(typeof I18N !== 'undefined' && I18N.lang) || 'es'];
 // el mismo tema y fondo animado que Compass (tema Compass, oscuro)
 try { applyTheme({ theme: 'compass', scheme: 'dark', bg: 'noche', anim: !matchMedia('(prefers-reduced-motion: reduce)').matches }); document.body.prepend(BG.el); } catch (e) { console.error(e); }
 for (const id of ['mk', 'logoBig', 'logoAbout']) { const e = document.getElementById(id); if (e) e.innerHTML = LOGO; }
@@ -25,7 +28,7 @@ function md(t) {
   if (list) out.push('</ul>');
   return out.join('');
 }
-const fecha = d => new Date(d).toLocaleDateString('es', { day: 'numeric', month: 'long', year: 'numeric' });
+const fecha = d => new Date(d).toLocaleDateString(LOC, { day: 'numeric', month: 'long', year: 'numeric' });
 const asset = (r, re) => (r.assets || []).find(a => re.test(a.name));
 const mb = b => (b / 1048576).toFixed(0) + ' MB';
 
@@ -41,12 +44,14 @@ const mb = b => (b / 1048576).toFixed(0) + ' MB';
     const v = latest.tag_name.replace(/^v/, ''), inst = asset(latest, /Instalador.*\.exe$/i), port = asset(latest, /Portable.*\.exe$/i);
     if (inst) $('#dlWin').href = inst.browser_download_url;
     if (port) $('#dlPortable').href = port.browser_download_url;
-    $('#ver').textContent = `Versión ${v} · ${fecha(latest.published_at)} · Gratis · Windows 10/11 y Android 7+`;
+    $('#ver').textContent = `${I18N.tr('Versión ')}${v} · ${fecha(latest.published_at)}${I18N.tr(' · Gratis · Windows 10/11 y Android 7+')}`;
   }
   // novedades: las de cada release (o las de changelog.json si el release no trae notas) + las versiones de antes de GitHub
   const seen = new Set(), items = [];
-  for (const r of rel) { const v = r.tag_name.replace(/^v/, ''); seen.add(v); items.push({ v, date: r.published_at, body: (r.body && r.body.trim()) || notes[v] || '', url: r.html_url }); }
-  for (const [v, body] of Object.entries(notes)) if (v !== '_' && !seen.has(v)) items.push({ v, date: null, body, old: true });
+  const note = v => { const n = notes[v]; return !n ? '' : typeof n === 'string' ? n : (n[LOC] || n.es || ''); };
+  const localized = v => LOC !== 'es' && notes[v] && typeof notes[v] === 'object' && notes[v][LOC];
+  for (const r of rel) { const v = r.tag_name.replace(/^v/, ''); seen.add(v); items.push({ v, date: r.published_at, body: localized(v) || (r.body && r.body.trim()) || note(v), url: r.html_url }); }
+  for (const v of Object.keys(notes)) if (v !== '_' && !seen.has(v)) items.push({ v, date: null, body: note(v), old: true });
   items.sort((a, b) => b.v.localeCompare(a.v, undefined, { numeric: true }));
   $('#log').innerHTML = items.length ? items.slice(0, 8).map((x, i) => `<article class="card rel${i === 0 ? ' new' : ''}">
     <header><b>Versión ${esc(x.v)}</b>${i === 0 ? '<span class="tag">Última</span>' : ''}<small>${x.date ? fecha(x.date) : 'antes de publicarse en GitHub'}</small></header>

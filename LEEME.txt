@@ -1,5 +1,29 @@
-COMPASS LAUNCHER 5.0
+COMPASS LAUNCHER 5.3
 ====================
+
+Web: https://luckicla.github.io/compass-launcher  ·  Hecho por luckicla  ·  © 2026, todos los derechos reservados.
+
+NOVEDADES DE LA 5.3
+  - Idiomas: español, inglés y catalán (se elige solo según el sistema; se cambia en
+    Ajustes > Apariencia). También la app del móvil y la web.
+  - Paisaje de Jugar personalizable (atardecer, noche, nieve, Nether, End, mar, el fondo del tema,
+    la imagen del perfil o una imagen tuya). Clic derecho sobre el paisaje.
+  - «Eliminar servidor» en el clic derecho de la lista de servidores.
+  - Comandos «!» en el chat: escribe solo «!» para ver la lista con botones. !sethome, !home,
+    !homes y !delhome; el !tp puede pedir permiso (el otro acepta con un clic) o ser inmediato.
+    Se regula todo en Gente.
+  - Se quita «Un jugador» en los perfiles de servidores multijugador (con un mod, donde existe).
+  - Mods en la 1.12.2 y versiones antiguas (Legacy Fabric).
+  - App del móvil con los mismos iconos que el PC.
+
+NOVEDADES DE LA 5.2
+  - Todas las versiones de Minecraft (snapshots, betas y alphas opcionales, desactivadas por defecto).
+  - Mods por perfil y la Tienda pregunta en qué perfil instalar. Dependencias resueltas antes de instalar.
+  - Instalador con carpeta a elegir, icono en el escritorio, abrir con Windows y descargar los Java.
+
+NOVEDADES DE LA 5.1
+  - App para Android: enciende el PC (Wake-on-LAN) y controla tus servidores desde el móvil, a
+    tiempo real. Ajustes > App del móvil te enseña el QR y te guía paso a paso.
 
 NOVEDADES DE LA 5.0
   - Actualizaciones automáticas: Compass mira si hay versión nueva al abrirse y cada 4 horas, la

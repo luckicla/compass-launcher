@@ -77,6 +77,10 @@ function migrate() {   // pasa la configuración antigua (una sola instancia) al
   c.v = 3; save();
 }
 
+// idioma de lo que enseña Windows (bandeja, avisos, diálogos): el mismo que la interfaz
+const I18N_D = (() => { try { return require('./i18n-dict.js'); } catch { return {}; } })();
+const LANG = () => { const p = cfg().lang || 'auto', l = p === 'auto' ? String(app.getLocale() || '').toLowerCase() : p; return l.startsWith('ca') ? 'ca' : /^(es|gl|eu)/.test(l) ? 'es' : 'en'; };
+const T = s => { const d = I18N_D[LANG()]; return (d && d[s]) || s; };
 let remote = null;   // control desde el móvil (remote.js): lo que pasa en el servidor también le llega al móvil al momento
 const REMOTE_CH = new Set(['host', 'srvlog', 'upd']);
 const send = (ch, d) => { if (win && !win.isDestroyed()) win.webContents.send(ch, d); if (remote && REMOTE_CH.has(ch)) remote.broadcast(ch, d); };
@@ -231,7 +235,7 @@ async function installedIds(dir) {
 
 // ---------- Modrinth: instalar, resolver dependencias y arreglar conflictos ----------
 const MR = 'https://api.modrinth.com/v2';
-const projectVersions = (id, mc) => J(`${MR}/project/${enc(id)}/version?loaders=${enc('["fabric"]')}&game_versions=${enc(JSON.stringify([mc]))}`);
+const projectVersions = (id, mc) => J(`${MR}/project/${enc(id)}/version?loaders=${enc(JSON.stringify([loaderOf(mc)]))}&game_versions=${enc(JSON.stringify([mc]))}`);
 const pickVer = vs => vs.find(v => v.version_type === 'release') || vs[0];   // mejor una versión estable que una beta
 const primary = v => v.files.find(f => f.primary) || v.files[0];
 
@@ -326,7 +330,7 @@ async function installDep(dep, t) {   // true si ha instalado algo que da «dep�
   };
   for (const c of depCandidates(dep)) if (await tryProj(c)) return true;
   try {   // último recurso: buscarlo por nombre en Modrinth
-    const facets = JSON.stringify([['project_type:mod'], ['categories:fabric'], [`versions:${t.mc}`]]);
+    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(t.mc)}`], [`versions:${t.mc}`]]);
     const r = await J(`${MR}/search?query=${enc(dep.replace(/[-_]/g, ' '))}&facets=${enc(facets)}&limit=5`);
     for (const h of r.hits || []) if (await tryProj(h.project_id)) return true;
   } catch {}
@@ -697,7 +701,7 @@ async function cfInstall(modId, t, done = new Set()) {
     if (d.relationType === 3) { try { await cfInstall(d.modId, t, done); } catch (e) { log('Dependencia omitida: ' + e.message); } }
 }
 async function mrSearch(t, q, sort, offset) {
-  const facets = JSON.stringify([['project_type:mod'], [`versions:${t.mc}`], ['categories:fabric']]);
+  const facets = JSON.stringify([['project_type:mod'], [`versions:${t.mc}`], [`categories:${loaderOf(t.mc)}`]]);
   const idx = q ? (sort || 'relevance') : (sort && sort !== 'relevance' ? sort : 'downloads');
   const r = await J(`${MR}/search?query=${enc(q || '')}&facets=${enc(facets)}&limit=24&offset=${offset || 0}&index=${idx}`);
   await scanMods(t.mods);
@@ -726,14 +730,19 @@ async function fabricVersions() {
   }
   return gameVersions;
 }
+// Las versiones antiguas (1.3 a 1.13) usan Legacy Fabric: el mismo Fabric Loader, mantenido para esas versiones
+const LEGACY_META = 'https://meta.legacyfabric.net/v2';
+const verInfo = mc => ((allVers && allVers.list) || cfg().knownAll || []).find(v => v.id === mc);
+const isLegacy = mc => { const v = verInfo(mc); if (v) return !!v.legacy; const m = /^1\.(\d+)/.exec(String(mc)); return !!m && +m[1] >= 3 && +m[1] <= 13; };
+const loaderOf = mc => isLegacy(mc) ? 'legacy-fabric' : 'fabric';   // cómo se llama el cargador en Modrinth
 // Todas las versiones de Minecraft (las de Mojang): normales, snapshots, betas y alphas, y cuáles admiten mods (Fabric)
 let allVers = null;
 async function mcVersions() {
   if (allVers && Date.now() - allVers.t < 6 * 3600e3) return allVers.list;
   try {
-    const [man, fab] = await Promise.all([J('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'), J('https://meta.fabricmc.net/v2/versions/game').catch(() => [])]);
-    const fset = new Set((fab || []).map(v => v.version));
-    const list = (man.versions || []).map(v => ({ id: v.id, type: v.type, fabric: fset.has(v.id) }));
+    const [man, fab, leg] = await Promise.all([J('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'), J('https://meta.fabricmc.net/v2/versions/game').catch(() => []), J(LEGACY_META + '/versions/game').catch(() => [])]);
+    const fset = new Set((fab || []).map(v => v.version)), lset = new Set((leg || []).map(v => v.version));
+    const list = (man.versions || []).map(v => ({ id: v.id, type: v.type, fabric: fset.has(v.id), legacy: !fset.has(v.id) && lset.has(v.id) }));
     if (list.length) { allVers = { t: Date.now(), list }; cfg().knownAll = list; save(); }
     return list;
   } catch {
@@ -749,16 +758,20 @@ async function fabricLoader(mc) {
   if (!l.length) throw new Error('Fabric no soporta la versión ' + mc);
   return l[0].loader.version;
 }
-async function ensureFabric(mc) {   // perfil de Fabric para el cliente (sin esto los mods no cargan)
+async function ensureFabric(mc) {   // perfil de Fabric (o Legacy Fabric) para el cliente: sin esto los mods no cargan
   const c = cfg(), k = c.fabric[mc], vf = id => path.join(ROOT(), 'versions', id, id + '.json');
   try {
-    const lv = await fabricLoader(mc), id = `fabric-loader-${lv}-${mc}`;
+    let base = 'https://meta.fabricmc.net/v2', l = isLegacy(mc) ? [] : await J(`${base}/versions/loader/${mc}`).catch(() => []);
+    if (!l || !l.length) { base = LEGACY_META; l = await J(`${base}/versions/loader/${mc}`).catch(() => []); }
+    if (!l || !l.length) throw new Error('Fabric no soporta la versión ' + mc);
+    const lv = l[0].loader.version; let id = `fabric-loader-${lv}-${mc}`;
     if (!fs.existsSync(vf(id))) {
-      const p = await J(`https://meta.fabricmc.net/v2/versions/loader/${mc}/${lv}/profile/json`);
-      fs.mkdirSync(path.join(ROOT(), 'versions', p.id), { recursive: true });
-      fs.writeFileSync(vf(p.id), JSON.stringify(p));
+      const p = await J(`${base}/versions/loader/${mc}/${lv}/profile/json`);
+      id = p.id || id;
+      fs.mkdirSync(path.join(ROOT(), 'versions', id), { recursive: true });
+      fs.writeFileSync(vf(id), JSON.stringify(p));
     }
-    c.fabric[mc] = { id, loader: lv }; save(); return id;
+    c.fabric[mc] = { id, loader: lv, legacy: base === LEGACY_META }; save(); return id;
   } catch (e) { if (k && fs.existsSync(vf(k.id))) return k.id; throw e; }
 }
 function javaMajor(mc) {   // por si no hay internet: 26.x → Java 25 · 1.20.5+ → 21 · antes → 17
@@ -1285,25 +1298,102 @@ const tpList = s => { try { return JSON.parse(fs.readFileSync(tpFile(s), 'utf8')
 const tpSave = (s, l) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(tpFile(s), JSON.stringify(l, null, 2)); };
 const tpHas = (s, n) => tpList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
 const COORD = /^~?-?\d+(\.\d+)?$|^~$/;
+// ---------- comandos con «!» en el chat (los gestiona Compass leyendo la consola) ----------
+// !tp (inmediato o pidiendo permiso al otro con !tpaccept / !tpdeny), !sethome / !home / !delhome / !homes,
+// y «!» a secas para ver la lista. Funciona igual en Fabric, Paper y Arclight, sin mods.
+const CMDS0 = { tp: 'perm', tpAsk: false, home: 'off', homes: 3 };
+const cmdsOf = s => ({ ...CMDS0, ...(s.cmds || {}) });
+const homesFile = s => path.join(sdir(s), 'compass-homes.json');
+const homesAll = s => { try { return JSON.parse(fs.readFileSync(homesFile(s), 'utf8')) || {}; } catch { return {}; } };
+const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(homesFile(s), JSON.stringify(h, null, 2)); };
+const homeList = s => { try { return JSON.parse(fs.readFileSync(path.join(sdir(s), 'compass-home-perm.json'), 'utf8')).filter(x => x && x.name); } catch { return []; } };
+const homeHas = (s, n) => homeList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
+const tpReq = new Map();   // destino (minúsculas) → { from, t }
+const dataWait = [];       // respuestas de «data get entity» que se esperan
+function waitData(who, what, ms = 4000) {
+  return new Promise((res, rej) => { const w = { who: who.toLowerCase(), what, res, t: setTimeout(() => { dataWait.splice(dataWait.indexOf(w), 1); rej(new Error('sin respuesta')); }, ms) }; dataWait.push(w); });
+}
+function chatBtns(who, text, btns) {   // mensaje con botones que rellenan el chat (el jugador solo tiene que pulsar Enter)
+  const parts = [{ text: '[Compass] ' + text + ' ', color: 'aqua' }, ...btns.map(([label, cmd, color]) => ({ text: '[' + label + '] ', color, bold: true, clickEvent: { action: 'suggest_command', value: cmd }, click_event: { action: 'suggest_command', command: cmd } }))];
+  srvCmd(`tellraw ${who} ${JSON.stringify(parts).replace(/[^\x00-\x7f]/g, c => '\\u' + c.charCodeAt(0).toString(16).padStart(4, '0'))}`);
+}
+async function playerPos(who) {
+  const pos = waitData(who, 'pos'); srvCmd(`data get entity ${who} Pos`);
+  const p = await pos;
+  let dim = 'minecraft:overworld';
+  try { const d = waitData(who, 'dim', 2500); srvCmd(`data get entity ${who} Dimension`); dim = await d; } catch {}
+  return { x: +p[0].toFixed(2), y: +p[1].toFixed(2), z: +p[2].toFixed(2), dim };
+}
 function handleTpChat(s, text) {
   for (const line of String(text).split(/\r?\n/)) {
+    // respuestas de «data get entity»: posición y dimensión de un jugador
+    let d = /(\w{3,16}) has the following entity data: \[(-?[\d.E-]+)d, (-?[\d.E-]+)d, (-?[\d.E-]+)d\]/.exec(line);
+    if (d) { const w = dataWait.find(x => x.who === d[1].toLowerCase() && x.what === 'pos'); if (w) { clearTimeout(w.t); dataWait.splice(dataWait.indexOf(w), 1); w.res([+d[2], +d[3], +d[4]]); } continue; }
+    d = /(\w{3,16}) has the following entity data: "([\w:/.-]+)"/.exec(line);
+    if (d) { const w = dataWait.find(x => x.who === d[1].toLowerCase() && x.what === 'dim'); if (w) { clearTimeout(w.t); dataWait.splice(dataWait.indexOf(w), 1); w.res(d[2]); } continue; }
     // «[hh:mm:ss] [Server thread/INFO]: <Nombre> mensaje» (con o sin «(Minecraft)» y «[Not Secure]»).
     // El nombre es el PRIMER <…> de la línea: lo pone el servidor, el jugador no lo puede falsificar.
     const m = /^(?:\[[^\]]*\]\s*)+(?:\([^)]*\)\s*)?:?\s*(?:\[Not Secure\]\s*)?<(\w{3,16})>\s(.*)$/.exec(line);
     if (!m) continue;
     const who = m[1], msg = m[2].trim();
-    if (!/^!tp(\s|$)/i.test(msg)) continue;
-    const tell = t => chat(who, '[Compass] ' + t, 'aqua');
-    if (!tpHas(s, who)) { tell('No tienes permiso de TP. Pídeselo al dueño del servidor.'); continue; }
-    const a = msg.split(/\s+/).slice(1);
+    if (!/^!/.test(msg)) continue;
+    chatCmd(s, who, msg).catch(e => log('Comando !: ' + e.message));
+  }
+}
+async function chatCmd(s, who, msg) {
+  const C = cmdsOf(s), tell = (t, c = 'aqua') => chat(who, '[Compass] ' + t, c);
+  const [cmd0, ...a] = msg.slice(1).trim().split(/\s+/), cmd = (cmd0 || '').toLowerCase();
+  const canTp = C.tp === 'all' || (C.tp === 'perm' && tpHas(s, who));
+  const canHome = C.home === 'all' || (C.home === 'perm' && homeHas(s, who));
+  const online = n => (run && run.players || []).find(x => x.toLowerCase() === String(n).toLowerCase());
+  if (!cmd || cmd === 'ayuda' || cmd === 'help' || cmd === 'comandos') {   // «!» a secas: lo que puede usar este jugador
+    const l = [];
+    if (canTp) l.push(['!tp Nombre', C.tpAsk ? 'pide ir hasta otro jugador' : 'ir hasta otro jugador'], ['!tp x y z', 'ir a unas coordenadas']);
+    if (canTp && C.tpAsk) l.push(['!tpaccept / !tpdeny', 'aceptar o rechazar un TP']);
+    if (canHome) l.push(['!sethome [nombre]', `guardar una casa (máx. ${C.homes})`], ['!home [nombre]', 'ir a tu casa'], ['!homes', 'ver tus casas'], ['!delhome nombre', 'borrar una casa']);
+    if (!l.length) return tell('Aquí no tienes comandos con ! (el dueño del servidor los puede activar en Compass).');
+    tell('Comandos que puedes usar (pulsa uno para escribirlo):');
+    for (const [c, t] of l) chatBtns(who, '', [[c, c.split(' ')[0], 'yellow']]), chat(who, '   ' + t, 'gray');
+    return;
+  }
+  if (cmd === 'tp') {
+    if (!canTp) return tell(C.tp === 'off' ? 'El TP está desactivado en este servidor.' : 'No tienes permiso de TP. Pídeselo al dueño del servidor.');
     if (a.length === 1 && NAME_RE.test(a[0])) {
-      if (a[0].toLowerCase() === who.toLowerCase()) { tell('Ya estás contigo mismo :)'); continue; }
-      const on = run && run.players && run.players.length ? run.players.find(x => x.toLowerCase() === a[0].toLowerCase()) : a[0];
-      if (!on) { tell(a[0] + ' no está conectado.'); continue; }
-      srvCmd(`tp ${who} ${on}`); srvOut(`[Compass] TP: ${who} → ${on}\n`); tell('Teletransportado a ' + on);
-    } else if (a.length === 3 && a.every(x => COORD.test(x))) {
-      srvCmd(`execute as ${who} at ${who} run tp ${who} ${a.join(' ')}`); srvOut(`[Compass] TP: ${who} → ${a.join(' ')}\n`); tell('Teletransportado a ' + a.join(' '));
-    } else tell('Uso: !tp Nombre  o  !tp x y z');
+      if (a[0].toLowerCase() === who.toLowerCase()) return tell('Ya estás contigo mismo :)');
+      const on = online(a[0]); if (!on) return tell(a[0] + ' no está conectado.');
+      if (C.tpAsk) {
+        tpReq.set(on.toLowerCase(), { from: who, t: Date.now() });
+        chatBtns(on, `${who} quiere teletransportarse hasta ti.`, [['Aceptar', '!tpaccept', 'green'], ['Rechazar', '!tpdeny', 'red']]);
+        return tell(`Le he pedido permiso a ${on}. Tiene 60 segundos para aceptar.`);
+      }
+      srvCmd(`tp ${who} ${on}`); srvOut(`[Compass] TP: ${who} → ${on}\n`); return tell('Teletransportado a ' + on);
+    }
+    if (a.length === 3 && a.every(x => COORD.test(x))) { srvCmd(`execute as ${who} at ${who} run tp ${who} ${a.join(' ')}`); srvOut(`[Compass] TP: ${who} → ${a.join(' ')}\n`); return tell('Teletransportado a ' + a.join(' ')); }
+    return tell('Uso: !tp Nombre  o  !tp x y z');
+  }
+  if (cmd === 'tpaccept' || cmd === 'tpdeny' || cmd === 'tpsi' || cmd === 'tpno') {
+    const r = tpReq.get(who.toLowerCase()); tpReq.delete(who.toLowerCase());
+    if (!r || Date.now() - r.t > 60000) return tell('No tienes ninguna petición de TP pendiente.');
+    if (cmd === 'tpdeny' || cmd === 'tpno') { chat(r.from, `[Compass] ${who} ha rechazado tu TP.`, 'red'); return tell('Rechazado.'); }
+    if (!online(r.from)) return tell(r.from + ' ya no está conectado.');
+    srvCmd(`tp ${r.from} ${who}`); srvOut(`[Compass] TP aceptado: ${r.from} → ${who}\n`);
+    chat(r.from, `[Compass] ${who} ha aceptado: teletransportado.`, 'green'); return tell('Aceptado.');
+  }
+  if (['sethome', 'home', 'homes', 'delhome'].includes(cmd)) {
+    if (!canHome) return tell(C.home === 'off' ? 'Las casas (!home) están desactivadas en este servidor.' : 'No tienes permiso para usar !home. Pídeselo al dueño del servidor.');
+    const all = homesAll(s), key = who.toLowerCase(), mine = all[key] || {}, name = (a[0] || 'casa').toLowerCase().replace(/[^\wñáéíóú-]/gi, '').slice(0, 16) || 'casa';
+    if (cmd === 'homes') { const n = Object.keys(mine); return tell(n.length ? 'Tus casas: ' + n.join(', ') : 'No tienes casas. Usa !sethome'); }
+    if (cmd === 'delhome') { if (!mine[name]) return tell('No tienes ninguna casa llamada ' + name); delete mine[name]; all[key] = mine; homesSave(s, all); return tell('Casa ' + name + ' borrada.'); }
+    if (cmd === 'sethome') {
+      if (!mine[name] && Object.keys(mine).length >= C.homes) return tell(`Ya tienes ${C.homes} casa(s), el máximo. Borra una con !delhome nombre.`);
+      let p; try { p = await playerPos(who); } catch { return tell('No he podido leer dónde estás. Prueba otra vez.'); }
+      mine[name] = p; all[key] = mine; homesSave(s, all);
+      return tell(`Casa «${name}» guardada en ${Math.round(p.x)} ${Math.round(p.y)} ${Math.round(p.z)}.`, 'green');
+    }
+    const h = mine[name] || (a[0] ? null : Object.values(mine)[0]);
+    if (!h) return tell(a[0] ? 'No tienes ninguna casa llamada ' + name : 'No tienes casas. Usa !sethome');
+    srvCmd(`execute in ${h.dim || 'minecraft:overworld'} run tp ${who} ${h.x} ${h.y} ${h.z}`); srvOut(`[Compass] Home: ${who} → ${name}\n`);
+    return tell('Bienvenido a casa.', 'green');
   }
 }
 
@@ -1698,7 +1788,7 @@ async function similarMod(mod, mc, dir) {   // último recurso: el mismo mod en 
   for (const c of mod.mid ? depCandidates(mod.mid) : []) if ((r = await tryProj(c))) return r;
   const q = mod.title || String(mod.mid || '').replace(/[-_]/g, ' ');
   if (q) try {
-    const facets = JSON.stringify([['project_type:mod'], ['categories:fabric'], [`versions:${mc}`]]);
+    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(mc)}`], [`versions:${mc}`]]);
     const s = await J(`${MR}/search?query=${enc(q)}&facets=${enc(facets)}&limit=5`);
     for (const h of s.hits || []) if ((r = await tryProj(h.project_id))) return r;
   } catch {}
@@ -1872,13 +1962,13 @@ async function skinUpload(buf, variant, name) {
 function makeTray() {
   if (tray) return;
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
-  tray.setToolTip(run ? 'Compass Launcher: servidor encendido' : 'Compass Launcher: esperando órdenes del móvil');
+  tray.setToolTip('Compass Launcher' + (run ? ' · ' + T('Servidor encendido') : ''));
   tray.setContextMenu(Menu.buildFromTemplate([
-    { label: 'Abrir', click: () => win && win.show() },
-    { label: 'Reiniciar servidor', click: () => H.hostRestart().catch(() => {}) },
-    { label: 'Apagar servidor y salir', click: () => quitAll() },
+    { label: T('Abrir'), click: () => win && win.show() },
+    { label: T('Reiniciar servidor'), click: () => H.hostRestart().catch(() => {}) },
+    { label: T('Apagar servidor y salir'), click: () => quitAll() },
     { type: 'separator' },
-    { label: 'Salir de Compass', click: () => quitAll() },
+    { label: T('Salir de Compass'), click: () => quitAll() },
   ]));
   tray.on('click', () => win && win.show());
 }
@@ -1927,10 +2017,13 @@ function optsOut(p) {   // al cerrar el juego: lo que hayas cambiado vuelve a lo
 const EXTRAS = {
   zoom: { pref: 'zoomKey', field: 'zoomFiles', label: 'Zoom con la C', ids: ['zoomify', 'ok_zoomer', 'okzoomer', 'logical_zoom', 'wi_zoom'], slugs: ['zoomify', 'ok-zoomer'] },
   look: { pref: 'freeLook', field: 'lookFiles', label: 'Vista libre con el Alt', ids: ['swivel', 'shouldercheck', 'altcamera', 'freelook', 'freelookplusplus', 'simplelook', 'perspectivemod'], slugs: ['swivel', 'shouldercheck', 'altcamera', 'DSA6X7rF'] },
+  // en los perfiles de un servidor (de amigo o tuyo) se quita el botón «Un jugador»: solo se juega en el servidor
+  nosp: { key: 'nosp', pref: 'hideSingleplayer', field: 'nospFiles', label: 'Sin «Un jugador»', ids: ['remove-singleplayer-button', 'removesingleplayerbutton', 'remove_singleplayer_button'], slugs: ['remove-singleplayer-button'], only: p => p.kind === 'friend' },
 };
 async function extraSetup(p, t, X) {
   const files = p[X.field] || [];
-  if (!PREF(X.pref) || (p.extraOff || []).includes(X === EXTRAS.zoom ? 'zoom' : 'look')) {
+  const key = X.key || (X === EXTRAS.zoom ? 'zoom' : 'look');
+  if (!PREF(X.pref) || (X.only && !X.only(p)) || (p.extraOff || []).includes(key)) {
     if (files.length) { for (const f of files) for (const n of [f, f + '.disabled']) try { fs.unlinkSync(path.join(t.mods, n)); } catch {} delete p[X.field]; save(); }
     return;
   }
@@ -2047,7 +2140,7 @@ function updSet(patch) {
     updNotified = upd.state + upd.version;
     try {
       const { Notification } = require('electron');
-      if (Notification.isSupported()) { const n = new Notification({ title: 'Compass Launcher ' + upd.version, body: upd.state === 'downloaded' ? 'La actualización está lista: se instala al cerrar Compass.' : 'Hay una versión nueva disponible.', icon: path.join(__dirname, 'assets', 'icon.png') }); n.on('click', () => { if (win) { win.show(); win.focus(); send('openUpdates'); } }); n.show(); }
+      if (Notification.isSupported()) { const n = new Notification({ title: 'Compass Launcher ' + upd.version, body: upd.state === 'downloaded' ? T('La actualización está lista: se instala al cerrar Compass.') : T('Hay una versión nueva disponible.'), icon: path.join(__dirname, 'assets', 'icon.png') }); n.on('click', () => { if (win) { win.show(); win.focus(); send('openUpdates'); } }); n.show(); }
     } catch {}
   }
 }
@@ -2103,7 +2196,7 @@ const H = {
     for (const x of [...c.profiles, ...c.servers]) if (!x.mc) { x.mc = latest; ch = true; }
     if (!prof(c.active)) { c.active = c.profiles[0] && c.profiles[0].id; ch = true; }
     if (ch) save();
-    return { profiles: c.profiles, servers: c.servers.map(x => ({ ...x, offline: readProps(x)['online-mode'] === 'false', icon: fs.existsSync(path.join(sdir(x), 'server-icon.png')) })), active: c.active, ram: c.ram, hasKey: !!c.cfKey, game: gameState, host: hostView(), minOnPlay: c.minOnPlay !== false, showHost: c.showHost != null ? c.showHost : c.servers.length > 0, onboarded: !!c.onboarded, prefs: { shareOptions: PREF('shareOptions'), zoomKey: PREF('zoomKey'), freeLook: PREF('freeLook'), menuLogo: PREF('menuLogo'), menuServer: PREF('menuServer') }, look: c.look || {}, glassOk: glassOk() };
+    return { profiles: c.profiles, servers: c.servers.map(x => ({ ...x, offline: readProps(x)['online-mode'] === 'false', icon: fs.existsSync(path.join(sdir(x), 'server-icon.png')) })), active: c.active, ram: c.ram, hasKey: !!c.cfKey, game: gameState, host: hostView(), minOnPlay: c.minOnPlay !== false, showHost: c.showHost != null ? c.showHost : c.servers.length > 0, onboarded: !!c.onboarded, prefs: { shareOptions: PREF('shareOptions'), zoomKey: PREF('zoomKey'), freeLook: PREF('freeLook'), menuLogo: PREF('menuLogo'), menuServer: PREF('menuServer'), hideSingleplayer: PREF('hideSingleplayer') }, look: c.look || {}, glassOk: glassOk() };
   },
   sysInfo: async () => ({ totalGb: Math.floor(os.totalmem() / 2 ** 30), versions: await fabricVersions(), all: await mcVersions(), snapshots: !!cfg().showSnapshots, app: app.getVersion() }),
   // ----- actualizaciones -----
@@ -2159,7 +2252,8 @@ const H = {
   setRam: async r => { if (/^\d+G$/.test(r)) { cfg().ram = r; save(); } },
   setKey: async k => { cfg().cfKey = (k || '').trim(); save(); },
   setPref: async (k, v) => {
-    if (['minOnPlay', 'showHost', 'onboarded', 'shareOptions', 'zoomKey', 'freeLook', 'menuLogo', 'menuServer', 'showSnapshots'].includes(k)) { cfg()[k] = !!v; save(); }
+    if (['minOnPlay', 'showHost', 'onboarded', 'shareOptions', 'zoomKey', 'freeLook', 'menuLogo', 'menuServer', 'showSnapshots', 'hideSingleplayer'].includes(k)) { cfg()[k] = !!v; save(); }
+    if (k === 'lang' && ['auto', 'es', 'en', 'ca'].includes(v) && cfg().lang !== v) { cfg().lang = v; save(); if (tray) { try { tray.destroy(); } catch {} tray = null; makeTray(); } }
     if (k === 'look' && v && typeof v === 'object') { cfg().look = cleanLook(v); save(); applyLook(); }
   },
   logError: async m => { log('[interfaz] ' + String(m).slice(0, 4000)); },
@@ -2334,6 +2428,7 @@ const H = {
   serverSet: async (id, patch) => {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
     for (const k of ['name', 'mc', 'ram', 'mode', 'autoRestart', 'shareWorld', 'welcome', 'desc', 'color', 'type']) if (k in patch) s[k] = patch[k];
+    if (patch.cmds && typeof patch.cmds === 'object') { const c = { ...cmdsOf(s), ...patch.cmds }; s.cmds = { tp: ['off', 'perm', 'all'].includes(c.tp) ? c.tp : 'perm', tpAsk: !!c.tpAsk, home: ['off', 'perm', 'all'].includes(c.home) ? c.home : 'off', homes: Math.max(1, Math.min(10, +c.homes || 3)) }; }
     if (!['paper', 'hybrid'].includes(s.type)) s.type = 'fabric';
     s.welcome = String(s.welcome || '').replace(/[\r\n]+/g, ' ').slice(0, 200); s.desc = String(s.desc || '').slice(0, 300);
     if (s.color && !/^#[0-9a-f]{6}$/i.test(s.color)) delete s.color;
@@ -2455,7 +2550,7 @@ const H = {
     const t = tgt(t0), mods = (await scanMods(t.mods)).filter(m => m.projectId && m.enabled);
     if (!mods.length) return [];
     const r = await J(`${MR}/version_files/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hashes: mods.map(m => m.sha1), algorithm: 'sha1', loaders: ['fabric'], game_versions: [t.mc] }) });
+      body: JSON.stringify({ hashes: mods.map(m => m.sha1), algorithm: 'sha1', loaders: [loaderOf(t.mc)], game_versions: [t.mc] }) });
     const out = [];
     for (const m of mods) {
       const v = r[m.sha1]; if (!v) continue;
@@ -2509,7 +2604,7 @@ const H = {
         if (!synced && p.compass === false) { try { const v = await versionFromPing(await slpPing(p.server, 3000)); if (v && v !== p.mc) { p.mc = v; save(); log('El servidor ahora es de Minecraft ' + v); } } catch {} }
       }
       t = tgt({ kind: 'profile', id: pid });   // la versión puede haber cambiado al sincronizar
-      const hasFabric = ((allVers && allVers.list) || cfg().knownAll || []).find(v => v.id === p.mc)?.fabric !== false;
+      const vi = verInfo(p.mc), hasFabric = !vi || vi.fabric || vi.legacy;
       if (hasFabric) for (const X of Object.values(EXTRAS)) { try { await extraSetup(p, t, X); } catch (e) { log(X.label + ': ' + e.message); } }
       // la comprobación va DESPUÉS de sincronizar y de poner los extras: si no, se comprobaban mods que luego cambiaban
       try { await resolveDeps(t, true); } catch {}
@@ -2843,7 +2938,7 @@ Object.assign(H, {
     const d = sdir(s), pr = readProps(s), J2 = f => jread(path.join(d, f));
     return { ops: J2('ops.json'), whitelist: J2('whitelist.json'), bans: J2('banned-players.json'), ipbans: J2('banned-ips.json'),
       known: J2('usercache.json').map(u => u.name).filter(Boolean).slice(0, 200), online: run && run.id === id ? run.players : [],
-      tp: tpList(s), running: !!(run && run.id === id && run.state === 'ready'), whitelistOn: pr['white-list'] === 'true', onlineMode: pr['online-mode'] !== 'false', opLevel: pr['op-permission-level'] || '4' };
+      tp: tpList(s), home: homeList(s), cmds: cmdsOf(s), running: !!(run && run.id === id && run.state === 'ready'), whitelistOn: pr['white-list'] === 'true', onlineMode: pr['online-mode'] !== 'false', opLevel: pr['op-permission-level'] || '4' };
   },
   permsAct: async (id, action, a = {}) => {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
@@ -2851,7 +2946,7 @@ Object.assign(H, {
     const F = { ops: path.join(d, 'ops.json'), wl: path.join(d, 'whitelist.json'), ban: path.join(d, 'banned-players.json'), ip: path.join(d, 'banned-ips.json') };
     const drop = (f, key, val) => jwrite(f, jread(f).filter(x => String(x[key]).toLowerCase() !== String(val).toLowerCase()));
     const cmd = c => { srvCmd(c); srvOut('> ' + c + '\n'); };
-    if (['op', 'deop', 'wlAdd', 'wlRemove', 'ban', 'pardon', 'setLevel', 'tpAdd', 'tpRemove'].includes(action) && !NAME_RE.test(name)) throw new Error(`«${name}» no es un nombre de Minecraft válido`);
+    if (['op', 'deop', 'wlAdd', 'wlRemove', 'ban', 'pardon', 'setLevel', 'tpAdd', 'tpRemove', 'homeAdd', 'homeRemove'].includes(action) && !NAME_RE.test(name)) throw new Error(`«${name}» no es un nombre de Minecraft válido`);
     if (['banIp', 'pardonIp'].includes(action) && !IP_RE.test(String(a.ip || ''))) throw new Error('Esa IP no es válida');
     switch (action) {
       case 'whitelist':
@@ -2881,6 +2976,8 @@ Object.assign(H, {
         const l = tpList(s); l.push({ name }); tpSave(s, l);
         if (live) chat(name, '[Compass] Ya puedes teletransportarte: escribe en el chat !tp Nombre o !tp x y z', 'aqua'); return; }
       case 'tpRemove': tpSave(s, tpList(s).filter(x => x.name.toLowerCase() !== name.toLowerCase())); return;
+      case 'homeAdd': { const f = path.join(d, 'compass-home-perm.json'), l = homeList(s); if (!l.some(x => x.name.toLowerCase() === name.toLowerCase())) { l.push({ name }); jwrite(f, l); } if (live) chat(name, '[Compass] Ya puedes guardar casas: escribe !sethome y luego !home', 'aqua'); return; }
+      case 'homeRemove': { const f = path.join(d, 'compass-home-perm.json'); jwrite(f, homeList(s).filter(x => x.name.toLowerCase() !== name.toLowerCase())); return; }
       case 'kick': if (!live) throw new Error('El servidor no está encendido'); return cmd('kick ' + name + (reason ? ' ' + reason : ''));
       case 'gamemode': if (!live) throw new Error('El servidor no está encendido'); if (!['survival', 'creative', 'adventure', 'spectator'].includes(a.mode)) throw new Error('Modo no válido'); return cmd(`gamemode ${a.mode} ${name}`);
       case 'tpSpawn': {
@@ -2979,14 +3076,14 @@ else {
       if (quitting) return;
       if (!run && (cfg().remote || {}).on) {   // con la app del móvil activada, Compass se queda junto al reloj para poder recibir órdenes
         e.preventDefault(); makeTray(); win.hide();
-        if (!cfg().trayTold) { cfg().trayTold = true; save(); try { const { Notification } = require('electron'); new Notification({ title: 'Compass sigue abierto', body: 'Está junto al reloj para que puedas encender tus servidores desde el móvil. Para cerrarlo del todo: clic derecho en el icono, Salir.', icon: path.join(__dirname, 'assets', 'icon.png') }).show(); } catch {} }
+        if (!cfg().trayTold) { cfg().trayTold = true; save(); try { const { Notification } = require('electron'); new Notification({ title: T('Compass sigue abierto'), body: T('Está junto al reloj para que puedas encender tus servidores desde el móvil. Para cerrarlo del todo: clic derecho en el icono, Salir.'), icon: path.join(__dirname, 'assets', 'icon.png') }).show(); } catch {} }
         return;
       }
       if (!run) return;
       e.preventDefault();
-      const r = await dialog.showMessageBox(win, { type: 'question', title: 'Servidor encendido', message: 'Tu servidor sigue encendido',
-        detail: 'Puedes dejarlo funcionando en segundo plano (icono junto al reloj) o apagarlo y salir.',
-        buttons: ['Seguir en segundo plano', 'Apagar servidor y salir', 'Cancelar'], defaultId: 0, cancelId: 2 });
+      const r = await dialog.showMessageBox(win, { type: 'question', title: T('Servidor encendido'), message: T('Tu servidor sigue encendido'),
+        detail: T('Puedes dejarlo funcionando en segundo plano (icono junto al reloj) o apagarlo y salir.'),
+        buttons: [T('Seguir en segundo plano'), T('Apagar servidor y salir'), T('Cancelar')], defaultId: 0, cancelId: 2 });
       if (r.response === 0) { makeTray(); win.hide(); }
       else if (r.response === 1) await quitAll();
     });

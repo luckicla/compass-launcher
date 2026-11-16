@@ -496,3 +496,20 @@ button.chip:hover{background:rgb(var(--fgrgb) / .13)}
 .pprow .t{flex:1;display:flex;flex-direction:column}.pprow small{color:var(--mut)}
 .pprow .ck{opacity:0;color:var(--acc);display:grid}
 .pprow.on{box-shadow:0 0 0 2px var(--acc)}.pprow.on .ck{opacity:1}
+
+/* escena de Inicio */
+.scene.clear{background:transparent}
+.scene.photo{background:#111}
+.scene .scimg{position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;image-rendering:auto}
+.scene.photo::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgb(10 6 16 / .8),rgb(10 6 16 / .1) 60%),linear-gradient(0deg,rgb(10 6 16 / .5),transparent 50%)}
+.scene .flake{animation:flake 6s linear infinite}
+@keyframes flake{to{transform:translateY(30px)}}
+.scgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
+.scard{display:flex;flex-direction:column;gap:6px;text-align:left;padding:6px;border-radius:var(--rad,4px);background:var(--s2);box-shadow:0 0 0 2px transparent}
+.scard.on{box-shadow:0 0 0 2px var(--acc)}
+.scard b{font-size:12.5px;padding:0 2px 2px}
+.scprev{position:relative;height:78px;overflow:hidden;border-radius:calc(var(--rad,4px) * .7);background:#2a1a38;display:grid;place-items:center;color:var(--mut)}
+.scprev svg.land{position:absolute;inset:0;width:100%;height:100%}
+.scprev.clear{background:repeating-conic-gradient(var(--s3) 0 25%,var(--s1) 0 50%) 0 0/16px 16px}
+.scprev.up{background:var(--s1);border:2px dashed var(--line2)}
+.scprev .scimg{position:absolute;inset:0;background-size:cover;background-position:center}

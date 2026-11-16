@@ -30,8 +30,10 @@ const ICON = {
   info: '<circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 7.5v.5"/>', check: '<path d="M4 12l5 5L20 6"/>', download: '<path d="M12 3v12M6 10l6 6 6-6M4 21h16"/>', wifi: '<path d="M2 8.5a15 15 0 0 1 20 0M5.5 12.5a10 10 0 0 1 13 0M9 16.5a5 5 0 0 1 6 0"/>',
   save: '<path d="M5 3h11l3 3v15H5z"/><path d="M8 3v6h8M8 21v-7h8v7"/>', x: '<path d="M6 6l12 12M18 6L6 18"/>', gear: '<circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/>',
 };
-const I = (n, s = 22) => el('span', { style: 'display:contents', html: `<svg width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">${ICON[n] || ''}</svg>` });
-let LOGO = ''; fetch('logo.svg').then(r => r.text()).then(t => { LOGO = t; $$('.logo').forEach(x => { if (!x.innerHTML) x.innerHTML = t; }); }).catch(() => {});
+// los mismos iconos que Compass en el PC (icons.js); los de aquí solo si faltara alguno
+const PCI = { back: 'chevleft', menu: 'dots' };
+const I = (n, s = 22) => { const pc = typeof ICONS !== 'undefined' && ICONS[PCI[n] || n]; return el('span', { style: 'display:contents', html: `<svg class="ic" width="${s}" height="${s}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="${pc ? 'square' : 'round'}" stroke-linejoin="${pc ? 'miter' : 'round'}">${pc || ICON[n] || ''}</svg>` }); };
+// el logo viene de icons.js (el mismo que en el PC)
 const logo = () => el('span', { class: 'logo', html: LOGO });
 function toast(msg, type = 'info', ms = 3500) {
   const t = el('div', { class: 'toast ' + type }, msg); $('#toasts').append(t);
@@ -119,6 +121,7 @@ async function connect() {
       PC = { ...PC, name: INFO.name || PC.name, lan: INFO.lan ? `${INFO.lan}:${INFO.port}` : PC.lan, pub: INFO.pub ? `${INFO.pub}:${INFO.port}` : PC.pub, mac: INFO.mac || PC.mac, bc: INFO.bcast || PC.bc }; store.set('pc', PC);
       if (INFO.look) { store.set('look', INFO.look); applyLook(INFO.look); }
       Object.assign(ST, await call('state'));
+      try { I18N.protect([PC.name, ...(ST.servers || []).map(s => s.name)]); } catch {}
       try { LOG = (await call('hostLog')) || []; } catch {}
       setOnline(true); openEvents();
       return true;
@@ -144,7 +147,7 @@ function openEvents() {   // tiempo real: el PC avisa de todo lo que cambia
   };
 }
 let chT = null;
-async function onChanged() { try { Object.assign(ST, await call('state')); } catch { return; } if (VIEW.name === 'server' && VIEW.reload) VIEW.reload(); else render(); }
+async function onChanged() { try { Object.assign(ST, await call('state')); I18N.protect((ST.servers || []).map(s => s.name)); } catch { return; } if (VIEW.name === 'server' && VIEW.reload) VIEW.reload(); else render(); }
 function onHost() { if (VIEW.name === 'home') render(); else if (VIEW.name === 'server') { paintSrvHead(); if (TAB === 'resumen') renderTab(); } }
 const ANSI = /\x1b\[[0-9;]*m/g;
 function pushLog(t) {
@@ -169,11 +172,11 @@ const SV = id => (ST.servers || []).find(s => s.id === id);
 const hostOf = id => ST.host && ST.host.id === id ? ST.host : { state: 'off', players: [] };
 const HS = { off: ['Apagado', ''], starting: ['Arrancando…', 'warn'], ready: ['En línea', 'on'], stopping: ['Apagándose…', 'warn'], restarting: ['Reiniciando…', 'warn'] };
 const typeName = t => t === 'paper' ? 'Plugins (Paper)' : t === 'hybrid' ? 'Mods + plugins' : 'Mods (Fabric)';
-const ICONS = {};
+const SRV_ICONS = {};
 function srvIcon(s, box) {
-  if (ICONS[s.id] !== undefined) { box.replaceChildren(ICONS[s.id] ? el('img', { src: ICONS[s.id], alt: '' }) : I('server', 26)); return; }
+  if (SRV_ICONS[s.id] !== undefined) { box.replaceChildren(SRV_ICONS[s.id] ? el('img', { src: SRV_ICONS[s.id], alt: '' }) : I('server', 26)); return; }
   box.replaceChildren(I('server', 26));
-  if (s.icon) call('serverIconGet', s.id).then(u => { ICONS[s.id] = u || null; if (u) box.replaceChildren(el('img', { src: u, alt: '' })); }).catch(() => {}); else ICONS[s.id] = null;
+  if (s.icon) call('serverIconGet', s.id).then(u => { SRV_ICONS[s.id] = u || null; if (u) box.replaceChildren(el('img', { src: u, alt: '' })); }).catch(() => {}); else SRV_ICONS[s.id] = null;
 }
 
 // pantallas principales (barra de abajo): Servidores · Mi PC · Ajustes. Un servidor se abre encima, con «atrás».
@@ -494,6 +497,8 @@ function renderSettings() {
       el('div', { class: 'field' }, el('label', {}, 'Tema'), themeSel),
       el('div', { class: 'field' }, el('label', {}, 'Claro u oscuro'), seg(APP.scheme, [['pc', 'Como el PC'], ['system', 'Sistema'], ['dark', 'Oscuro'], ['light', 'Claro']], v => { APP.scheme = v; saveApp(); applyLook(store.get('look', {})); })),
       tg('Fondo animado', 'Estrellas, nubes y demás. Apágalo para ahorrar batería.', APP.anim, v => { APP.anim = v; saveApp(); applyLook(store.get('look', {})); })),
+    el('div', { class: 'card' }, el('h3', {}, 'Idioma'),
+      (() => { const x = el('select', { class: 'in', onchange: e => { if (I18N.set(e.target.value)) location.reload(); } }, ...Object.entries(I18N.NAMES).map(([k, t]) => el('option', { value: k, 'data-noi18n': k === 'auto' ? null : '' }, t))); x.value = I18N.pref; return el('div', { class: 'field' }, x); })()),
     el('div', { class: 'card' }, el('h3', {}, 'App'),
       tg('Vibrar', 'Al encender el PC y cuando termina de arrancar.', APP.vibrate, v => { APP.vibrate = v; saveApp(); }),
       tg('Buscar actualizaciones solas', 'Al abrir la app y cada 6 horas.', APP.autoUpd, v => { APP.autoUpd = v; saveApp(); })),
@@ -560,6 +565,7 @@ if (typeof BG !== 'undefined') document.body.prepend(BG.el);
 applyLook(store.get('look', {}));
 
 // ---------- arranque ----------
+try { I18N.start(); } catch (e) { console.error(e); }   // español, inglés o catalán (el del móvil, o el que elijas en Ajustes)
 render();
 if (PC) connect().then(() => render());
 if (APP.autoUpd) checkUpdate().then(() => { if (UPD_NEW && VIEW.name === 'home') render(); });

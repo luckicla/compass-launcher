@@ -99,3 +99,6 @@ footer small{flex-basis:100%;color:var(--dim);font-size:12px}
 .shot.phone img{border-radius:22px;box-shadow:0 0 0 6px var(--s3),0 0 0 8px var(--edge),0 24px 50px -20px rgb(0 0 0 / .8)}
 .shot figcaption{color:var(--mut);font-size:14px;text-align:center}
 @media (max-width:760px){.shots{grid-template-columns:1fr}.shots.phones{grid-template-columns:repeat(3,1fr);gap:10px}}
+
+.langsel{background:var(--s2);color:var(--tx);border:0;box-shadow:0 0 0 2px var(--edge);padding:8px 10px;font-weight:700;margin-left:6px;cursor:pointer}
+@media (max-width:760px){.langsel{margin-left:auto}.nav .btn{margin-left:8px}}

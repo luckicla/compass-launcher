@@ -86,7 +86,7 @@ let ST = { profiles: [], servers: [], active: null, ram: '4G', game: 'idle', hos
 const P = id => ST.profiles.find(p => p.id === id), SV = id => ST.servers.find(s => s.id === id);
 let CODE = '';
 let MODE = store.get('mode') === 'host' ? 'host' : 'play', PAGE = 'home', selP = null, selS = store.get('selS'), TAB = 'resumen', PREV = 'home';
-const reload = async () => { Object.assign(ST, await A.call('state')); if (!P(selP)) selP = ST.active; if (!SV(selS)) selS = ST.servers[0] && ST.servers[0].id; };
+const reload = async () => { Object.assign(ST, await A.call('state')); try { I18N.protect([...ST.profiles.map(p => p.name), ...ST.servers.map(s => s.name)]); } catch {} if (!P(selP)) selP = ST.active; if (!SV(selS)) selS = ST.servers[0] && ST.servers[0].id; };
 const vcmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (y[i] || 0) - (x[i] || 0); return 0; };
 // servidores: solo versiones con Fabric/Paper
 const srvMcSelect = (cur, dis) => { const s = el('select', { class: 'in', disabled: !!dis }); [...new Set([cur, ...SYS.versions])].filter(Boolean).sort(vcmp).forEach(v => s.append(el('option', { value: v }, 'Minecraft ' + v))); s.value = cur; return s; };
@@ -95,7 +95,7 @@ const mcSelect = (cur, dis) => {
   const s = el('select', { class: 'in', disabled: !!dis });
   const all = SYS.all && SYS.all.length ? SYS.all : SYS.versions.map(id => ({ id, type: 'release', fabric: true }));
   const show = v => v.type === 'release' || SYS.snapshots || v.id === cur;
-  const lbl = v => 'Minecraft ' + v.id + (v.fabric ? '' : ' (sin mods)');
+  const lbl = v => 'Minecraft ' + v.id + (v.fabric ? '' : v.legacy ? ' (mods con Legacy Fabric)' : ' (sin mods)');
   const groups = [['release', 'Versiones'], ['snapshot', 'Snapshots (de prueba)'], ['old_beta', 'Beta antiguas'], ['old_alpha', 'Alpha antiguas']];
   for (const [type, name] of groups) {
     const vs = all.filter(v => v.type === type && show(v)); if (!vs.length) continue;
@@ -312,22 +312,81 @@ const progBox = () => el('div', { class: 'gprog' }, el('div', { class: 'row' }, 
 // =====================================================================
 // JUGAR · Inicio
 // =====================================================================
-function landscape() {   // atardecer a bloques, generado (siempre igual) con colinas escalonadas
+// ---------- idioma ----------
+function langPanel() {
+  const sel = el('select', { class: 'in', style: 'max-width:280px', onchange: async e => { const changed = I18N.set(e.target.value); await A.call('setPref', 'lang', e.target.value).catch(() => {}); if (changed) location.reload(); } },
+    ...Object.entries(I18N.NAMES).map(([k, t]) => el('option', { value: k, 'data-noi18n': k === 'auto' ? null : '' }, t)));
+  sel.value = I18N.pref;
+  return el('div', { class: 'panel' }, el('h3', {}, I('globe', 16), ' Idioma'), el('div', { class: 'row', style: 'align-items:center;gap:12px' }, sel, el('small', { class: 'hint', style: 'margin:0' }, 'El idioma de Compass. Se aplica al momento.')));
+}
+// ---------- escena de Inicio: varios paisajes a bloques, el fondo del tema, la imagen del perfil o una tuya ----------
+const SCENES = {
+  atardecer: { name: 'Atardecer', sky: ['#22163a', '#5c2a56', '#c25a5c', '#ffab5c'], hills: ['#9a4466', '#6a2f58', '#43234a', '#2a1b35'], sun: ['#ffcf7a', '#ffe7ad', '#fff4d6'], stars: 34, fade: '#1b1226' },
+  noche: { name: 'Noche', sky: ['#070b1f', '#101a3d', '#1d2b5c', '#2c3f78'], hills: ['#26335e', '#1c2747', '#141c35', '#0c1224'], sun: ['#dfe7ff', '#eef2ff', '#ffffff'], moon: true, stars: 90, fade: '#070b1f' },
+  amanecer: { name: 'Amanecer', sky: ['#7ec8f0', '#a9dbf5', '#f6c6c6', '#ffd9a0'], hills: ['#5fae4e', '#4c9440', '#3a7833', '#2a5c27'], sun: ['#fff1b8', '#fff7d6', '#ffffff'], stars: 0, fade: '#2a3b1f', low: true },
+  nieve: { name: 'Nieve', sky: ['#9fb8d6', '#c4d4e8', '#dfe7f2', '#f2f5fa'], hills: ['#e8eef6', '#d2dcea', '#b9c6da', '#9aaac2'], sun: ['#ffffff', '#ffffff', '#ffffff'], stars: 0, fade: '#3a4660', snow: true },
+  nether: { name: 'Nether', sky: ['#1a0505', '#3d0b0b', '#6e1610', '#b8361a'], hills: ['#5a1414', '#401010', '#2b0a0a', '#170505'], sun: ['#ff7a1a', '#ffb347', '#ffe0a0'], stars: 0, fade: '#1a0505', lava: true },
+  end: { name: 'El End', sky: ['#05030b', '#120b24', '#1f1238', '#2e1a4f'], hills: ['#e7e3a8', '#cfc98a', '#b5ae6e', '#968f52'], sun: ['#b07cff', '#d4b8ff', '#ffffff'], stars: 60, fade: '#05030b', pillars: true },
+  mar: { name: 'Mar', sky: ['#2d74c4', '#4e95dc', '#86bdf0', '#cfe8ff'], hills: ['#2a6fb0', '#225e98', '#1a4c7c', '#123a60'], sun: ['#fff1b8', '#fff7d6', '#ffffff'], stars: 0, fade: '#0f2c4a', sea: true },
+};
+const SCENE_EXTRA = { tema: 'Fondo del tema', perfil: 'Imagen del perfil', propia: 'Imagen mía' };
+const sceneNow = () => store.get('scene') || 'atardecer';
+function landscape(kind = 'atardecer') {   // paisaje a bloques, generado (siempre igual) con colinas escalonadas
+  const S = SCENES[kind] || SCENES.atardecer;
   let seed = 7; const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
   const hill = (base, amp, w, color, op = 1) => {
     let x = 0, pts = `0,400 `; let y = base;
     while (x <= 1240) { y = Math.round((base + (rnd() - .5) * amp * 2) / 10) * 10; pts += `${x},${y} ${x + w},${y} `; x += w; }
     return `<polygon points="${pts}1240,400" fill="${color}" opacity="${op}"/>`;
   };
-  let stars = ''; for (let i = 0; i < 34; i++) { const s = rnd() > .8 ? 4 : 2; stars += `<rect x="${Math.round(rnd() * 1200)}" y="${Math.round(rnd() * 150)}" width="${s}" height="${s}" fill="#fff" opacity="${(.25 + rnd() * .5).toFixed(2)}"/>`; }
+  let stars = ''; for (let i = 0; i < S.stars; i++) { const sz = rnd() > .8 ? 4 : 2; stars += `<rect x="${Math.round(rnd() * 1200)}" y="${Math.round(rnd() * 200)}" width="${sz}" height="${sz}" fill="#fff" opacity="${(.25 + rnd() * .5).toFixed(2)}"/>`; }
+  const sy = S.low ? 236 : 166;
+  const sun = S.moon ? `<g class="sun"><rect x="846" y="96" width="64" height="64" fill="${S.sun[0]}"/><rect x="866" y="106" width="16" height="16" fill="#b9c3e6"/><rect x="886" y="132" width="12" height="12" fill="#c7d0ee"/></g>`
+    : `<g class="sun"><rect x="826" y="${sy}" width="120" height="120" fill="${S.sun[0]}" opacity=".25"/><rect x="846" y="${sy + 20}" width="80" height="80" fill="${S.sun[1]}"/><rect x="858" y="${sy + 32}" width="56" height="56" fill="${S.sun[2]}"/></g>`;
+  let extra = '';
+  if (S.pillars) for (const [x, h] of [[180, 170], [330, 120], [560, 200], [1010, 150]]) extra += `<rect x="${x}" y="${330 - h}" width="34" height="${h}" fill="#1a1028"/><rect x="${x + 10}" y="${322 - h}" width="14" height="10" fill="#d48cff"/>`;
+  if (S.lava) { extra += `<rect x="0" y="372" width="1200" height="28" fill="#ff6a00"/>`; for (let i = 0; i < 24; i++) extra += `<rect x="${Math.round(rnd() * 1200)}" y="${372 + Math.round(rnd() * 20)}" width="10" height="4" fill="#ffd34d" opacity=".8"/>`; }
+  if (S.sea) { extra += `<rect x="0" y="300" width="1200" height="100" fill="#1f62a8"/>`; for (let i = 0; i < 40; i++) extra += `<rect x="${Math.round(rnd() * 1200)}" y="${306 + Math.round(rnd() * 90)}" width="${20 + Math.round(rnd() * 40)}" height="2" fill="#9fd0ff" opacity=".5"/>`; }
+  if (S.snow) for (let i = 0; i < 70; i++) extra += `<rect class="flake" x="${Math.round(rnd() * 1200)}" y="${Math.round(rnd() * 380)}" width="3" height="3" fill="#fff" opacity=".85"/>`;
+  const hills = S.sea ? hill(290, 18, 60, S.hills[0], .9) : `${hill(250, 30, 60, S.hills[0], .9)}${hill(285, 26, 40, S.hills[1])}${hill(320, 22, 30, S.hills[2])}${hill(352, 14, 20, S.hills[3])}`;
   return `<svg class="land" viewBox="0 0 1200 400" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
-  <defs><linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
-    <stop offset="0" stop-color="#22163a"/><stop offset=".42" stop-color="#5c2a56"/><stop offset=".7" stop-color="#c25a5c"/><stop offset=".9" stop-color="#ffab5c"/></linearGradient>
-    <linearGradient id="fade" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="#1b1226" stop-opacity=".85"/><stop offset=".55" stop-color="#1b1226" stop-opacity="0"/></linearGradient></defs>
-  <rect width="1200" height="400" fill="url(#sky)"/>${stars}
-  <g class="sun"><rect x="826" y="166" width="120" height="120" fill="#ffcf7a" opacity=".25"/><rect x="846" y="186" width="80" height="80" fill="#ffe7ad"/><rect x="858" y="198" width="56" height="56" fill="#fff4d6"/></g>
-  ${hill(250, 30, 60, '#9a4466', .9)}${hill(285, 26, 40, '#6a2f58')}${hill(320, 22, 30, '#43234a')}${hill(352, 14, 20, '#2a1b35')}
-  <rect width="1200" height="400" fill="url(#fade)"/></svg>`;
+  <defs><linearGradient id="sky-${kind}" x1="0" y1="0" x2="0" y2="1">
+    <stop offset="0" stop-color="${S.sky[0]}"/><stop offset=".42" stop-color="${S.sky[1]}"/><stop offset=".7" stop-color="${S.sky[2]}"/><stop offset=".9" stop-color="${S.sky[3]}"/></linearGradient>
+    <linearGradient id="fade-${kind}" x1="0" y1="0" x2="1" y2="0"><stop offset="0" stop-color="${S.fade}" stop-opacity=".85"/><stop offset=".55" stop-color="${S.fade}" stop-opacity="0"/></linearGradient></defs>
+  <rect width="1200" height="400" fill="url(#sky-${kind})"/>${stars}${sun}${S.sea ? extra + hills : hills + extra}
+  <rect width="1200" height="400" fill="url(#fade-${kind})"/></svg>`;
+}
+// lo que va detrás del nombre del perfil en Inicio
+function sceneBg(p) {
+  const k = sceneNow();
+  if (k === 'tema') return { cls: ' clear', html: '' };
+  const img = k === 'perfil' ? p && p.icon : k === 'propia' ? store.get('sceneImg') : null;
+  if (img) return { cls: ' photo', html: `<div class="scimg" style="background-image:url('${String(img).replace(/'/g, '')}')"></div>` };
+  return { cls: '', html: landscape(SCENES[k] ? k : 'atardecer') };
+}
+// elegir escena: panel de Ajustes › Apariencia y clic derecho en la escena
+function scenePanel() {
+  const cur = sceneNow();
+  const pickOwn = () => {
+    const inp = el('input', { type: 'file', accept: 'image/*', style: 'display:none', onchange: () => {
+      const f = inp.files[0]; if (!f) return;
+      const img = new Image(); img.onload = () => {   // se reduce para que no ocupe mucho
+        const w = Math.min(1600, img.width), h = Math.round(img.height * w / img.width), cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+        cv.getContext('2d').drawImage(img, 0, 0, w, h); store.set('sceneImg', cv.toDataURL('image/jpeg', .85)); store.set('scene', 'propia');
+        toast('Escena cambiada', 'ok', 1800); refreshSettings(); if (MODE === 'play' && PAGE === 'home') renderHome();
+      }; img.src = URL.createObjectURL(f);
+    } });
+    document.body.append(inp); inp.click(); setTimeout(() => inp.remove(), 60000);
+  };
+  const set = k => { if (k === 'propia' && !store.get('sceneImg')) return pickOwn(); store.set('scene', k); toast('Escena cambiada', 'ok', 1500); refreshSettings(); if (MODE === 'play' && PAGE === 'home') renderHome(); };
+  const card = (k, name, html, cls = '') => el('button', { class: 'scard' + (k === cur ? ' on' : ''), onclick: () => set(k) }, el('div', { class: 'scprev' + cls, html }), el('b', {}, name));
+  return el('div', { class: 'panel' }, el('h3', {}, I('image', 16), ' Escena de Inicio'),
+    el('p', { class: 'hint', style: 'margin:-6px 0 12px' }, 'Lo que sale detrás del nombre del perfil en Inicio. También se cambia con clic derecho en la escena.'),
+    el('div', { class: 'scgrid' }, ...Object.entries(SCENES).map(([k, S]) => card(k, S.name, landscape(k))),
+      card('tema', SCENE_EXTRA.tema, '', ' clear'),
+      card('perfil', SCENE_EXTRA.perfil, '<div class="scimg" style="background-image:url(\'assets/icon.png\')"></div>', ' photo'),
+      card('propia', SCENE_EXTRA.propia, store.get('sceneImg') ? `<div class="scimg" style="background-image:url('${store.get('sceneImg')}')"></div>` : ic('upload', 26), store.get('sceneImg') ? ' photo' : ' up')),
+    store.get('sceneImg') ? el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: pickOwn }, I('upload', 14), 'Cambiar mi imagen')) : null);
 }
 function profilePicker(anchor) {
   const old = $('.picker'); if (old) { old.remove(); return; }
@@ -355,7 +414,8 @@ async function renderHome() {
     : busy ? 'Preparando Java, la versión y los mods. La primera vez tarda un poco más.'
     : friend && p.autoJoin !== false ? (p.compass === false ? `Al pulsar Jugar entras directo a ${p.name}, sin pasar por el menú de Minecraft.` : `Al pulsar Jugar se sincronizan los mods de ${p.name} y entras directo a su servidor.`)
     : 'Pulsa Jugar: Java, la versión y Fabric se preparan solos.';
-  const scene = el('div', { class: 'scene', html: landscape() },
+  const bg = sceneBg(p);
+  const scene = ctx(el('div', { class: 'scene' + bg.cls, html: bg.html },
     el('div', { class: 'who' }, I(friend ? 'users' : 'user', 14), ME ? `${ME.name}, vas a jugar con` : 'Vas a jugar con'),
     el('button', { class: 'pname', title: 'Cambiar de perfil', onclick: e => profilePicker(e.currentTarget) }, el('span', {}, p.name), I('chevdown', 30)),
     el('div', { class: 'facts' },
@@ -363,7 +423,9 @@ async function renderHome() {
       el('button', { class: 'chip', onclick: () => { selP = p.id; go('profiles'); } }, I('bolt', 14), gb(p.ram) + ' GB de RAM'), modsChip,
       friend ? el('span', { class: 'chip' }, I(p.own ? 'server' : 'link', 14), p.own ? 'Tu servidor' : 'Servidor de amigo') : null),
     el('p', { class: 'lead' }, lead),
-    el('div', { class: 'launch' }, goBtn, progBox()));
+    el('div', { class: 'launch' }, goBtn, progBox())), () => [{ t: 'Escena de Inicio', title: true },
+      ...Object.entries(SCENES).map(([k, S]) => ({ i: sceneNow() === k ? 'check' : 'image', t: S.name, f: () => { store.set('scene', k); renderHome(); } })), '-',
+      ...Object.entries(SCENE_EXTRA).map(([k, t]) => ({ i: sceneNow() === k ? 'check' : 'image', t, f: () => { if (k === 'propia' && !store.get('sceneImg')) { openSettings('apariencia'); return; } store.set('scene', k); renderHome(); } }))]);
 
   // servidores de amigos: tarjetas con su estado en directo; para unirse basta la IP o el código
   const friends = ST.profiles.filter(x => x.kind === 'friend' && !x.own);
@@ -782,7 +844,7 @@ function renderSettings() {
     if (top) body.scrollTop = top;   // al actualizar no te manda arriba del todo
   }
   const SECTION = {
-    apariencia: () => lookSection(() => show('apariencia', true)),
+    apariencia: () => [langPanel(), ...[].concat(lookSection(() => show('apariencia', true))), scenePanel()],
     cuenta: () => {
       const av = el('span', { class: 'av', style: 'width:56px;height:56px;font-size:22px' }); avatar(av, ME && ME.name, ME && ME.uuid);
       return [el('div', { class: 'panel' }, el('h3', {}, 'Cuenta de Microsoft'),
@@ -809,7 +871,8 @@ function renderSettings() {
           ['zoomKey', 'Zoom con la C', 'Se instala solo un mod de zoom (Zoomify u Ok Zoomer) en tus perfiles. Mantén pulsada la C para acercar.'],
           ['freeLook', 'Vista libre con el Alt', 'Mantén pulsado el Alt izquierdo para mirar alrededor sin girar a tu personaje, como en Lunar. Se instala solo un mod de vista libre.'],
           ['menuLogo', 'Logo de Compass en el menú de Minecraft', 'Cambia el logo de Minecraft por el de Compass Launcher, también cuando juegas solo.'],
-          ['menuServer', 'Menú de servidor: «Conectar al servidor»', 'En los perfiles de servidores de amigos, el botón Multijugador pasa a ser «Conectar al servidor» y solo lleva a ese servidor.']]
+          ['menuServer', 'Menú de servidor: «Conectar al servidor»', 'En los perfiles de servidores de amigos, el botón Multijugador pasa a ser «Conectar al servidor» y solo lleva a ese servidor.'],
+          ['hideSingleplayer', 'Quitar «Un jugador» en los perfiles de servidor', 'En los perfiles de un servidor (de un amigo o el tuyo) desaparece el botón «Un jugador»: solo se entra al servidor. Se instala un mod pequeño si existe para esa versión.']]
           .map(([k, t, d]) => el('div', { class: 'toggle' }, sw(ST.prefs ? ST.prefs[k] !== false : true, async v => { await A.call('setPref', k, v); if (ST.prefs) ST.prefs[k] = v; toast(v ? 'Activado. Se aplica la próxima vez que pulses Jugar.' : 'Desactivado. Se quita la próxima vez que pulses Jugar.', 'ok', 2600); }),
             el('div', { class: 't' }, el('b', {}, t), el('small', {}, d)))))],
     servidores: () => [
@@ -1309,7 +1372,23 @@ async function tabGente(s, body) {
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie baneado. Así da gusto.'),
     el('div', { class: 'row nw', style: 'margin-top:12px' }, ip, el('button', { class: 'btn sm dng', onclick: () => { if (ip.value.trim()) run('banIp', { ip: ip.value.trim() }, 'IP baneada'); } }, I('ban', 14), 'Banear IP')));
 
-  body.replaceChildren(el('div', { class: 'stack' }, add, online, el('div', { class: 'cols' }, el('div', { class: 'stack' }, tp, ops), el('div', { class: 'stack' }, wl, bans))));
+  // comandos con «!» en el chat: quién puede usarlos y cómo
+  const C = D.cmds || { tp: 'perm', tpAsk: false, home: 'off', homes: 3 };
+  const setC = async patch => { try { await A.call('serverSet', s.id, { cmds: { ...C, ...patch } }); Object.assign(C, patch); toast('Guardado', 'ok', 1500); tabGente(s, body); } catch (e) { toast(clean(e), 'error'); } };
+  const who = (cur, fn) => { const x = el('select', { class: 'in', style: 'width:auto', onchange: e => fn(e.target.value) }, el('option', { value: 'off' }, 'Nadie'), el('option', { value: 'perm' }, 'Solo con permiso'), el('option', { value: 'all' }, 'Todos')); x.value = cur; return x; };
+  const homesSel = el('select', { class: 'in', style: 'width:auto', onchange: e => setC({ homes: +e.target.value }) }, ...[1, 2, 3, 5, 10].map(n => el('option', { value: n }, n + (n === 1 ? ' casa' : ' casas')))); homesSel.value = C.homes;
+  const cmds = el('div', { class: 'panel' }, el('h3', {}, I('console', 16), ' Comandos con ! en el chat'),
+    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Tus amigos escriben «!» en el chat y les salen los comandos que pueden usar, con botones para escribirlos. No hace falta ningún mod.'),
+    el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'TP (!tp Nombre, !tp x y z)'), el('small', {}, 'Quién puede teletransportarse sin ser OP.')), who(C.tp, v => setC({ tp: v }))),
+    el('div', { class: 'toggle' }, sw(C.tpAsk, v => setC({ tpAsk: v })), el('div', { class: 't' }, el('b', {}, 'Pedir permiso al otro'), el('small', {}, 'El otro jugador tiene que aceptar con !tpaccept (o un clic). Si está apagado, el TP es inmediato.'))),
+    el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'Casas (!sethome, !home, !homes, !delhome)'), el('small', {}, 'Guardar sitios y volver a ellos cuando quieran.')), who(C.home, v => setC({ home: v }))),
+    C.home !== 'off' ? el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, 'Máximo de casas por jugador')), homesSel) : null);
+  const homes = C.home === 'perm' ? el('div', { class: 'panel' }, el('h3', {}, I('home', 16), ' Permiso de casas', el('span', { class: 'tag' + ((D.home || []).length ? ' acc' : '') }, String((D.home || []).length))),
+    (D.home || []).length ? el('div', { class: 'list' }, ...D.home.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name))),
+      el('button', { class: 'btn sm ghost', onclick: () => run('homeRemove', { name: t.name }, t.name + ' ya no puede usar !home') }, 'Quitar'))))
+      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie todavía. Escribe un nombre arriba y pulsa «Dar casas».')) : null;
+  if (C.home === 'perm') $('.row.nw', add).append(el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('homeAdd', { name: n }, n + ' ya puede usar !home'); } }, I('home', 14), 'Dar casas'));
+  body.replaceChildren(el('div', { class: 'stack' }, add, online, el('div', { class: 'cols' }, el('div', { class: 'stack' }, cmds, C.tp === 'perm' ? tp : null, homes, ops), el('div', { class: 'stack' }, wl, bans))));
   body._paint = () => { if (TAB === 'gente') tabGente(s, body); };
 }
 
@@ -1433,10 +1512,7 @@ async function tabAjustes(s, body) {
         await reload(); renderRailServers(); paintSrvHead(); toast(running ? 'Guardado. Reinicia el servidor para aplicarlo.' : 'Cambios guardados', 'ok');
       }) }, I('save', 18), 'Guardar cambios'),
       running ? el('small', {}, 'Se aplican al reiniciar.') : null, el('div', { class: 'sp' }),
-      el('button', { class: 'btn dng sm', onclick: async () => {
-        if (running) { toast('Apaga el servidor antes de quitarlo', 'warn'); return; }
-        const c = await modal('¿Quitar este servidor?', el('p', { style: 'color:var(--mut)' }, `«${s.name}»: puedes quitarlo de la lista y conservar sus archivos, o borrarlo todo, mundo incluido.`), [{ t: 'Cancelar', v: null }, { t: 'Solo quitar', v: 'keep' }, { t: 'Borrar todo', v: 'all', cls: 'dng' }]);
-        if (c) { try { await A.call('serverDel', s.id, c === 'all'); await reload(); selS = ST.servers[0] && ST.servers[0].id; store.set('selS', selS); TAB = 'resumen'; openHost(); } catch (e) { toast(clean(e), 'error'); } } } }, I('trash', 14), 'Quitar servidor')));
+      el('button', { class: 'btn dng sm', onclick: () => deleteServerFlow(s) }, I('trash', 14), 'Quitar servidor')));
 }
 
 // ---------- eventos del proceso principal ----------
@@ -1460,6 +1536,7 @@ A.on('toast', t => toast(t.msg, t.type === 'warn' ? 'warn' : t.type, 7000));
 async function boot() {
   document.body.prepend(BG.el); applyTheme(store.get('look') || {});
   $('#mark').innerHTML = LOGO; paintIcons();
+  try { I18N.start(); A.call('setPref', 'lang', I18N.pref).catch(() => {}); } catch (e) { console.error(e); }   // idioma: español, inglés o catalán
   try {
     const [, sys] = await Promise.all([reload(), A.call('sysInfo').catch(() => SYS)]); SYS = sys || SYS; lastHostState = ST.host.state;
   } catch (e) {   // si el proceso principal falla al arrancar, se enseña un aviso con reintento en vez de una pantalla vacía
@@ -1546,6 +1623,15 @@ function playerCtx(s, n, D, refresh) {
     { i: 'ban', t: 'Banear', dng: true, f: async () => { if (await confirmBox('¿Banear a ' + n + '?', 'No podrá entrar hasta que le quites el baneo.', 'Banear')) await act2('ban', {}, n + ' baneado'); } },
     { i: 'check', t: 'Quitar baneo', f: () => act2('pardon', {}, n + ' puede volver a entrar') }];
 }
+// eliminar un servidor (desde sus Ajustes o con clic derecho)
+async function deleteServerFlow(s) {
+  const running = ST.host.id === s.id && ST.host.state !== 'off';
+  if (running) { toast('Apaga el servidor antes de quitarlo', 'warn'); return; }
+  const c = await modal('¿Eliminar este servidor?', el('p', { style: 'color:var(--mut)' }, `«${s.name}»: puedes quitarlo de la lista y conservar sus archivos, o borrarlo todo, mundo incluido.`), [{ t: 'Cancelar', v: null }, { t: 'Solo quitar', v: 'keep' }, { t: 'Borrar todo', v: 'all', cls: 'dng' }]);
+  if (!c) return;
+  try { await A.call('serverDel', s.id, c === 'all'); await reload(); selS = ST.servers[0] && ST.servers[0].id; store.set('selS', selS); TAB = 'resumen'; renderRailServers(); if (MODE === 'host') openHost(); toast(c === 'all' ? 'Servidor borrado' : 'Servidor quitado de la lista', 'ok'); }
+  catch (e) { toast(clean(e), 'error'); }
+}
 function serverCtx(s) {
   const h = hostOf(s.id), st = h.state, other = ST.host.id && ST.host.id !== s.id;
   const openTab = t => { selS = s.id; store.set('selS', selS); TAB = t; if (MODE !== 'host') setMode('host'); else openHost(); };
@@ -1556,7 +1642,8 @@ function serverCtx(s) {
     { i: 'console', t: 'Consola', f: () => openTab('consola') }, { i: 'users', t: 'Gente y permisos', f: () => openTab('gente') },
     { i: 'clock', t: 'Automático y 24/7', f: () => openTab('auto') }, { i: 'gear', t: 'Ajustes del servidor', f: () => openTab('ajustes') }, '-',
     { i: 'folder', t: 'Abrir carpeta', f: () => A.call('serverOpen', s.id, 'server') },
-    { i: 'download', t: 'Copia de seguridad ahora', f: async () => toast('Copia creada: ' + await A.call('backupCreate', s.id), 'ok') }];
+    { i: 'download', t: 'Copia de seguridad ahora', f: async () => toast('Copia creada: ' + await A.call('backupCreate', s.id), 'ok') }, '-',
+    { i: 'trash', t: 'Eliminar servidor', dng: true, dis: st !== 'off', f: () => deleteServerFlow(s) }];
 }
 function profileCtx(p) {
   return [{ t: p.name, title: true },

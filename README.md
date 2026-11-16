@@ -1,20 +1,38 @@
 # Compass Launcher
 
-Launcher de Minecraft para jugar con tus amigos y montar tus propios servidores con mods.
+**Minecraft with your friends, hassle-free.** A Windows launcher to play together and host your own modded servers in one click — your friends join with just your IP and the mods reach them automatically. Comes with an Android app to turn on your PC and control your servers from anywhere.
 
-## Descargar
+🌐 **Website:** https://luckicla.github.io/compass-launcher · 🇪🇸 [Léeme en español](README.es.md)
 
-Última versión en **[Releases](https://github.com/luckicla/compass-launcher/releases/latest)**:
+## Download
 
-- `Compass-Launcher-Instalador-X.Y.Z.exe`: se instala y se actualiza solo.
-- `Compass-Launcher-Portable-X.Y.Z.exe`: un solo .exe, sin instalar (avisa cuando hay versión nueva).
+Latest version on **[Releases](https://github.com/luckicla/compass-launcher/releases/latest)**:
 
-## Cómo se publica una versión
+| File | What it is |
+|---|---|
+| `Compass-Launcher-Instalador-X.Y.Z.exe` | Windows installer. Updates itself. |
+| `Compass-Launcher-Portable-X.Y.Z.exe` | Single .exe, no install (tells you when there's a new version). |
+| `Compass-Movil.apk` | Android app (Android 7+). Updates itself. |
 
-1. Se cambia `version` en `package.json`.
-2. Se sube a `main`.
-3. GitHub Actions crea los `.exe` y los publica en Releases. Los Compass instalados la descargan solos.
+## Features
 
-## Licencia
+- **Play with friends**: paste their IP or code and Compass downloads the version, Fabric and every mod.
+- **Your own servers**: Fabric, Paper or both (Arclight), automatic port opening or tunnel, console, map, backups, 24/7 mode, scheduled tasks.
+- **Chat commands with `!`** for your friends: TP (instant or asking permission), homes, without mods.
+- **Store**: mods, shaders, resource packs, modpacks and maps from Modrinth and CurseForge, with dependencies resolved before installing.
+- **Every Minecraft version**, including snapshots (optional) and old versions with Legacy Fabric.
+- **Themes** with animated pixel-art backgrounds, light and dark.
+- **Android app**: Wake-on-LAN, start/stop servers, live console, players, settings… synced in real time.
+- **Languages**: English, Spanish and Catalan (follows your system).
 
-© 2026 luckicla. Todos los derechos reservados. Compass Launcher es gratis de usar, pero no se permite copiarlo, modificarlo ni redistribuirlo sin permiso. Mira [LICENSE](LICENSE).
+## How releases are published
+
+1. Bump `version` in `package.json`.
+2. Push to `main`.
+3. GitHub Actions builds the Windows `.exe` files and the Android `.apk`, publishes them on Releases and updates the website. Installed copies update automatically.
+
+## License
+
+© 2026 luckicla. All rights reserved. Compass Launcher is free to use, but copying, modifying or redistributing it is not allowed without permission. See [LICENSE](LICENSE).
+
+Not an official Minecraft product. Not approved by or associated with Mojang or Microsoft.
