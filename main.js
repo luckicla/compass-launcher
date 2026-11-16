@@ -1417,7 +1417,7 @@ async function cmdModSetup(s, r = null) {
   return true;
 }
 // En los perfiles de servidor (amigos y «Entrar yo»), el mismo mod hace que «Conectar al servidor» entre directo y quita «Un jugador»
-const clientModOk = p => (p.kind === 'friend' || !!p.own) && !!cmdModFile(p.mc) && PREF('menuServer');
+const clientModOk = p => (p.kind === 'friend' || !!p.own) && !!cmdModFile(p.mc) && PREF('menuServer') && p.compassMod !== false;
 async function clientModSetup(p, t) {
   const dst = path.join(t.mods, CMD_MOD), cfgF = path.join(pdir(p), 'compass-menu.json');
   if (!clientModOk(p)) { for (const f of [dst, cfgF]) try { fs.unlinkSync(f); } catch {} return false; }
@@ -2707,6 +2707,33 @@ const H = {
 
   // ----- mods (sirven para perfiles y servidores) -----
   modCount: async t => { try { return (await listLocal(tgt(t).mods)).filter(i => i.enabled).length; } catch { return 0; } },
+  // el mod / plugin de Compass, fijo arriba en la lista de mods (o plugins) con su interruptor
+  compassMod: async t0 => {
+    const t = tgt(t0);
+    if (t.kind === 'server') {
+      const sv = srv(t.id), kind = sv && cmdKind(sv);
+      const dir = kind === 'plugin' ? path.join(sdir(sv), 'plugins') : path.join(sdir(sv), 'mods');
+      const on = !!sv && !(sv.cmds && sv.cmds.mod === false) && !fs.existsSync(path.join(dir, CMD_MOD + '.disabled'));
+      if (kind && on) { try { await cmdModSetup(sv); } catch {} }
+      return { kind, on, installed: !!kind && fs.existsSync(path.join(dir, CMD_MOD)), running: isRunning(t.id), version: app.getVersion(), mc: sv && sv.mc, type: sv && (sv.type || 'fabric') };
+    }
+    const p = prof(t.id); if (!p) return { kind: null };
+    const server = p.kind === 'friend' || !!p.own;
+    return { kind: server && cmdModFile(p.mc) ? 'client' : null, server, on: p.compassMod !== false, installed: fs.existsSync(path.join(t.mods, CMD_MOD)), version: app.getVersion(), mc: p.mc };
+  },
+  compassModSet: async (t0, on) => {
+    const t = tgt(t0);
+    if (t.kind === 'server') {
+      const sv = srv(t.id); if (!sv) throw new Error('Servidor no encontrado');
+      for (const d of ['mods', 'plugins']) try { fs.unlinkSync(path.join(sdir(sv), d, CMD_MOD + '.disabled')); } catch {}
+      sv.cmds = cmdsClean({ ...cmdsOf(sv), mod: !!on }); save();
+      await cmdModSetup(sv); return { restart: isRunning(t.id) };
+    }
+    const p = prof(t.id); if (!p) throw new Error('Perfil no encontrado');
+    try { fs.unlinkSync(path.join(t.mods, CMD_MOD + '.disabled')); } catch {}
+    p.compassMod = !!on; save();
+    await clientModSetup(p, t); return {};
+  },
   scan: async t => { const x = tgt(t); if (x.kind === 'server') { try { const sv = srv(x.id); if (sv) await cmdModSetup(sv); } catch {} } return scanMods(x.mods); },
   checkCompat: async t => (await issuesOf(tgt(t))),
   fixMods: async t => autoFix(tgt(t)),

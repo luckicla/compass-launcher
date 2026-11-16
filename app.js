@@ -699,6 +699,26 @@ async function pickProfileFor(what, cur) {
 // =====================================================================
 // Mods instalados (perfiles y servidores)
 // =====================================================================
+// «Compass»: el mod (o plugin) de Compass, siempre arriba de la lista con su interruptor, esté puesto o no
+async function compassCard(t, box, reload) {
+  let M; try { M = await A.call('compassMod', t); } catch { box.replaceChildren(); return; }
+  if (!M || (!M.kind && t.kind !== 'server')) { box.replaceChildren(); return; }
+  const plug = M.kind === 'plugin', srvT = t.kind === 'server';
+  const desc = !M.kind ? (srvT ? 'Los comandos con / y autocompletado van en servidores de la 1.20 en adelante (Fabric 1.20, 1.21 y 26.1; Paper 1.20 o más nuevo). Aquí funcionan con «!».' : '')
+    : srvT ? '/tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con autocompletado. Se regula en Gente.' + (M.on && M.running ? ' Reinicia el servidor para que se note.' : '')
+    : '«Conectar al servidor» entra directo y quita «Un jugador» del menú (si está activado en Ajustes).';
+  const logo = el('div', { class: 'ico40', style: 'background:var(--s3);display:grid;place-items:center' }, el('img', { src: 'assets/icon.png', alt: '', style: 'width:28px;height:28px;image-rendering:pixelated' }));
+  const tog = M.kind ? el('label', { class: 'sw', title: M.on ? 'Desactivar' : 'Activar' }, el('input', { type: 'checkbox', checked: !!M.on, onchange: async e => {
+    e.target.disabled = true;
+    try { const r = await A.call('compassModSet', t, e.target.checked); toast(e.target.checked ? (r && r.restart ? 'Activado. Reinicia el servidor para que se note.' : 'Activado') : 'Desactivado', 'ok', 3000); }
+    catch (x) { toast(clean(x), 'error'); }
+    reload();
+  } })) : null;
+  box.replaceChildren(el('div', { class: 'li' + (M.on && M.kind ? '' : ' off'), style: 'box-shadow:inset 3px 0 0 var(--acc)' }, logo,
+    el('div', { class: 't' }, el('b', {}, el('span', {}, plug ? 'Compass (plugin)' : 'Compass'), el('span', { class: 'tag acc' }, 'de Compass'), M.kind ? el('span', { class: 'tag' }, M.version) : null,
+      M.kind && M.on && !M.installed ? el('span', { class: 'tag warn' }, 'se pone al ' + (srvT ? 'arrancar' : 'jugar')) : null),
+      el('small', {}, desc)), tog));
+}
 function makeMods(t, opts = {}) {
   let MODS = [], UPD = {}, ISS = []; const isSrv = t.kind === 'server';
   const node = el('div', { class: 'modsbox' }), list = el('div', { class: 'list' }), iss = el('div', { hidden: true, style: 'margin-bottom:12px' }), info = el('p', { class: 'hint', style: 'margin:0 0 12px' });
@@ -736,9 +756,12 @@ function makeMods(t, opts = {}) {
   };
   const E = (tt, s, i = 'cube') => el('div', { class: 'empty' }, el('div', { html: ic(i, 40) }), el('b', {}, tt), s);
   const icon = m => { const d = el('div', { class: 'ico40' }); if (m.icon) { const i = el('img', { src: m.icon, loading: 'lazy', alt: '' }); i.onerror = () => { i.remove(); d.innerHTML = ic('cube', 20); }; d.append(i); } else d.innerHTML = ic('cube', 20); return d; };
+  const pin = el('div', { class: 'list', style: 'margin-bottom:10px' });
+  node.insertBefore(pin, list);
   async function load() {
     if (!MODS.length) list.replaceChildren(el('div', { class: 'skel' }), el('div', { class: 'skel' }), el('div', { class: 'skel' }));
-    try { [MODS, ISS] = await Promise.all([A.call('scan', t), A.call('checkCompat', t)]); render(); if (opts.onCount) opts.onCount(MODS.filter(m => m.enabled).length); }
+    compassCard(t, pin, () => load());
+    try { [MODS, ISS] = await Promise.all([A.call('scan', t), A.call('checkCompat', t)]); MODS = MODS.filter(m => m.mid !== 'compass-comandos' && !/^compass-comandos\.jar/.test(m.file)); render(); if (opts.onCount) opts.onCount(MODS.filter(m => m.enabled).length); }
     catch (e) { list.replaceChildren(E('No se pudieron leer los mods', clean(e), 'alert')); }
   }
   function render() {
@@ -1912,8 +1935,8 @@ function tabPlugins(s, body) {
   const running = ST.host.id === s.id && ST.host.state !== 'off';
   const head = el('div', { class: 'tools' }, sub, el('div', { class: 'sp' }), running ? el('small', {}, 'Los plugins nuevos se cargan al reiniciar.') : null);
   if (PLUGSUB === 'store') { body.replaceChildren(head, el('div', { class: 'panel' }, kindStore('plugin', () => target('server', s.id)).node)); return; }
-  const list = el('div', { class: 'list' }), warn = el('div', { hidden: true, style: 'margin-bottom:12px' });
-  const node = el('div', { class: 'panel modsbox' }, warn,
+  const list = el('div', { class: 'list' }), warn = el('div', { hidden: true, style: 'margin-bottom:12px' }), pin = el('div', { class: 'list', style: 'margin-bottom:10px' });
+  const node = el('div', { class: 'panel modsbox' }, warn, pin,
     el('div', { class: 'tools' }, el('button', { class: 'btn sm pri', onclick: () => { PLUGSUB = 'store'; tabPlugins(s, body); } }, I('bag', 14), 'Añadir de la tienda'),
       B('plus', 'Añadir .jar', async () => { const n = await A.call('pluginAdd', s.id); if (n) { toast(plural(n, 'plugin añadido', 'plugins añadidos'), 'ok'); load(); } }, 'sm'),
       B('refresh', 'Instalar lo que falte', async () => { const g = await A.call('pluginsFix', s.id); toast(g.length ? 'Instalado: ' + g.join(', ') : 'No falta nada (o no lo he encontrado)', g.length ? 'ok' : 'info'); load(); }, 'sm'),
@@ -1924,7 +1947,8 @@ function tabPlugins(s, body) {
   node.ondrop = async e => { e.preventDefault(); node.classList.remove('drop'); const ps = [...e.dataTransfer.files].map(f => A.pathOf(f)).filter(p => /\.jar$/i.test(p)); if (ps.length) { const n = await A.call('pluginAdd', s.id, ps); toast(plural(n, 'plugin añadido', 'plugins añadidos'), 'ok'); load(); } };
   async function load() {
     list.replaceChildren(el('div', { class: 'skel' }), el('div', { class: 'skel' }));
-    let L; try { L = await A.call('pluginsList', s.id); } catch (e) { list.replaceChildren(el('div', { class: 'empty' }, el('b', {}, 'No se pudieron leer los plugins'), clean(e))); return; }
+    compassCard(target('server', s.id), pin, () => load());
+    let L; try { L = (await A.call('pluginsList', s.id)).filter(p => p.name !== 'CompassComandos' && !/^compass-comandos\.jar/.test(p.file || '')); } catch (e) { list.replaceChildren(el('div', { class: 'empty' }, el('b', {}, 'No se pudieron leer los plugins'), clean(e))); return; }
     const miss = [...new Set(L.flatMap(p => p.missing))];
     warn.hidden = !miss.length;
     warn.replaceChildren(el('div', { class: 'banner' }, I('alert', 18), el('div', { class: 't' }, el('b', {}, 'Faltan dependencias: '), miss.join(', ')), B('download', 'Instalarlas', async () => { const g = await A.call('pluginsFix', s.id); toast(g.length ? 'Instalado: ' + g.join(', ') : 'No las he encontrado en Modrinth', g.length ? 'ok' : 'warn'); load(); }, 'sm pri')));
