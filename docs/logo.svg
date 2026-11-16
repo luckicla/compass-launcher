@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3a2b4f"/><stop offset="1" stop-color="#1c1527"/></linearGradient>
+  </defs>
+  <path d="M8 2h48v2h2v2h2v2h2v48h-2v2h-2v2h-2v2H8v-2H6v-2H4v-2H2V8h2V6h2V4h2z" fill="url(#bg)"/>
+  <path d="M8 4h48v2h2v2H6V6h2z" fill="#fff" opacity=".08"/>
+  <g fill="#f1eadf" opacity=".35">
+    <rect x="31" y="5" width="2" height="3"/><rect x="31" y="56" width="2" height="3"/><rect x="5" y="31" width="3" height="2"/><rect x="56" y="31" width="3" height="2"/>
+    <rect x="15" y="15" width="2" height="2"/><rect x="47" y="15" width="2" height="2"/><rect x="15" y="47" width="2" height="2"/><rect x="47" y="47" width="2" height="2"/>
+  </g>
+  <!-- norte: ámbar (jugar) -->
+  <path d="M30 10h4v6h2v6h2v6h2v4H24v-4h2v-6h2v-6h2z" fill="#ffb547"/>
+  <path d="M32 10h2v6h2v6h2v6h2v4h-8z" fill="#ffd28a"/>
+  <!-- sur: prismarina (servidores) -->
+  <path d="M24 32h16v4h-2v6h-2v6h-2v6h-4v-6h-2v-6h-2v-6h-2z" fill="#5fd4c4"/>
+  <path d="M24 32h8v22h-2v-6h-2v-6h-2v-6h-2z" fill="#2f9f92"/>
+  <rect x="29" y="29" width="6" height="6" fill="#f1eadf"/>
+  <rect x="31" y="31" width="2" height="2" fill="#1c1527"/>
+</svg>

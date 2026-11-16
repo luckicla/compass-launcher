@@ -77,7 +77,9 @@ function migrate() {   // pasa la configuración antigua (una sola instancia) al
   c.v = 3; save();
 }
 
-const send = (ch, d) => { if (win && !win.isDestroyed()) win.webContents.send(ch, d); };
+let remote = null;   // control desde el móvil (remote.js): lo que pasa en el servidor también le llega al móvil al momento
+const REMOTE_CH = new Set(['host', 'srvlog', 'upd']);
+const send = (ch, d) => { if (win && !win.isDestroyed()) win.webContents.send(ch, d); if (remote && REMOTE_CH.has(ch)) remote.broadcast(ch, d); };
 // registro en archivo (antes iba a una consola dentro del launcher): Ajustes, Registro, lo abre
 const LOGF = () => path.join(U(), 'launcher.log');
 let logStream = null, logBytes = 0;
@@ -1796,15 +1798,17 @@ async function skinUpload(buf, variant, name) {
 function makeTray() {
   if (tray) return;
   tray = new Tray(nativeImage.createFromPath(path.join(__dirname, 'assets', 'tray.png')));
-  tray.setToolTip('Compass Launcher: servidor encendido');
+  tray.setToolTip(run ? 'Compass Launcher: servidor encendido' : 'Compass Launcher: esperando órdenes del móvil');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Abrir', click: () => win && win.show() },
     { label: 'Reiniciar servidor', click: () => H.hostRestart().catch(() => {}) },
     { label: 'Apagar servidor y salir', click: () => quitAll() },
+    { type: 'separator' },
+    { label: 'Salir de Compass', click: () => quitAll() },
   ]));
   tray.on('click', () => win && win.show());
 }
-async function quitAll() { quitting = true; try { await srvStop(); } catch {} await cleanupNet(); app.quit(); }
+async function quitAll() { quitting = true; try { await srvStop(); } catch {} await cleanupNet(); try { if (remote) await remote.stop(); } catch {} app.quit(); }
 
 // ---------- como Lunar: ajustes compartidos, zoom con la C y menú de Compass ----------
 const PREF = k => cfg()[k] !== false;   // shareOptions, zoomKey, freeLook, menuLogo, menuServer: activadas por defecto
@@ -1907,6 +1911,51 @@ function menuSetup(p) {
   writeOpts(opt, o);
 }
 
+// ---------- app del móvil: descarga y preparar el PC para encenderse solo ----------
+const QR = require('./qr.js');
+const APK_URL = 'https://github.com/luckicla/compass-launcher/releases/latest/download/Compass-Movil.apk';
+// Pide permiso de administrador una vez y deja el PC listo para Wake-on-LAN:
+// tarjeta de red con «despertar con paquete mágico» (también apagado), sin «inicio rápido» de Windows
+// (con él activado el PC no se despierta estando apagado) y el cortafuegos abierto para el móvil.
+async function prepareWake() {
+  if (process.platform !== 'win32') throw new Error('Solo en Windows');
+  const dir = path.join(os.tmpdir(), 'compass-wol-' + uid()); fs.mkdirSync(dir, { recursive: true });
+  const ps1 = path.join(dir, 'preparar.ps1'), outf = path.join(dir, 'resultado.json');
+  const script = `$ErrorActionPreference = 'SilentlyContinue'
+$r = @{ adapters = @(); fastStartupOff = $false; firewall = $false }
+$ads = Get-NetAdapter -Physical | Where-Object { $_.Status -ne 'Disabled' -and $_.MediaType -eq '802.3' }
+foreach ($a in $ads) {
+  Set-NetAdapterPowerManagement -Name $a.Name -WakeOnMagicPacket Enabled -NoRestart
+  foreach ($k in @('*WakeOnMagicPacket','WakeOnMagicPacket','S5WakeOnLan','*ModernStandbyWoLMagicPacket','WolShutdownLinkSpeed')) {
+    $p = Get-NetAdapterAdvancedProperty -Name $a.Name -RegistryKeyword $k
+    if ($p) { if ($k -eq 'WolShutdownLinkSpeed') { Set-NetAdapterAdvancedProperty -Name $a.Name -RegistryKeyword $k -RegistryValue 2 -NoRestart } else { Set-NetAdapterAdvancedProperty -Name $a.Name -RegistryKeyword $k -RegistryValue 1 -NoRestart } }
+  }
+  powercfg /deviceenablewake "$($a.InterfaceDescription)" | Out-Null
+  $pm = Get-NetAdapterPowerManagement -Name $a.Name
+  $r.adapters += @{ name = $a.Name; desc = $a.InterfaceDescription; mac = $a.MacAddress; magic = "$($pm.WakeOnMagicPacket)" }
+}
+reg add "HKLM\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power" /v HiberbootEnabled /t REG_DWORD /d 0 /f | Out-Null
+$r.fastStartupOff = ((Get-ItemProperty 'HKLM:\\SYSTEM\\CurrentControlSet\\Control\\Session Manager\\Power').HiberbootEnabled -eq 0)
+Remove-NetFirewallRule -DisplayName 'Compass Launcher (movil)'
+New-NetFirewallRule -DisplayName 'Compass Launcher (movil)' -Direction Inbound -Protocol TCP -LocalPort ${25580} -Action Allow -Profile Any | Out-Null
+$r.firewall = $true
+$r | ConvertTo-Json -Depth 4 | Out-File -Encoding utf8 '${outf.replace(/'/g, "''")}'
+`;
+  fs.writeFileSync(ps1, '﻿' + script, 'utf8');
+  const q = x => `'${String(x).replace(/'/g, "''")}'`;
+  try {
+    await runCmd('powershell.exe', ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command',
+      `Start-Process powershell.exe -Verb RunAs -Wait -WindowStyle Hidden -ArgumentList '-NoProfile','-ExecutionPolicy','Bypass','-File',${q(ps1)}`]);
+  } catch (e) { throw new Error(/cancel|1223/i.test(e.message) ? 'Has cancelado el permiso de administrador' : 'No se pudo preparar: ' + e.message); }
+  let r; try { r = JSON.parse(fs.readFileSync(outf, 'utf8').replace(/^﻿/, '')); } catch { throw new Error('Has cancelado el permiso de administrador (o Windows no lo dejó)'); }
+  finally { try { fs.rmSync(dir, { recursive: true, force: true }); } catch {} }
+  const ads = Array.isArray(r.adapters) ? r.adapters : r.adapters ? [r.adapters] : [];
+  const res = { t: Date.now(), adapters: ads.map(a => ({ name: a.name, desc: a.desc, mac: a.mac, ok: /enabled/i.test(a.magic || '') })), fastStartupOff: !!r.fastStartupOff, firewall: !!r.firewall };
+  const c = cfg(); c.remote = c.remote || {}; c.remote.prepared = res; save();
+  log('Preparar encendido: ' + JSON.stringify(res));
+  return res;
+}
+
 // ---------- actualizaciones automáticas (GitHub Releases) ----------
 // Instalador: electron-updater descarga la versión nueva en segundo plano y se instala al cerrar (o al pulsar
 // «Reiniciar y actualizar»). Portable: no se puede cambiar solo, así que se avisa y se abre la descarga.
@@ -1997,6 +2046,31 @@ const H = {
   },
   updAuto: async v => { cfg().autoUpdate = !!v; save(); if (au) au.autoDownload = !!v; if (v && upd.state === 'available' && au) au.downloadUpdate().catch(() => {}); pushUpd(); },
   updPage: async () => shell.openExternal(RELEASES),
+  // ----- app del móvil -----
+  remoteInfo: async () => ({ ...(await remote.info()), clients: remote.clients(), apk: APK_URL }),
+  remoteSet: async patch => {
+    const c = cfg(); c.remote = c.remote || {};
+    if ('name' in patch) c.remote.name = String(patch.name || '').trim().slice(0, 40) || os.hostname();
+    if ('on' in patch) {
+      c.remote.on = !!patch.on;
+      if (c.remote.on) {   // para que se pueda encender desde el móvil, Compass se abre solo (escondido) al entrar en Windows
+        c.openAtLogin = true; try { app.setLoginItemSettings({ openAtLogin: true, args: ['--compass-hidden'] }); } catch {}
+        await remote.start();
+      } else await remote.stop();
+    }
+    save(); return H.remoteInfo();
+  },
+  remotePairing: async () => { const code = await remote.pairing(); return { code, svg: QR.svg(code, { ecl: 'L', border: 2 }) }; },
+  remoteNewKey: async () => { remote.newKey(); return H.remoteInfo(); },
+  remoteForget: async id => { const r = cfg().remote || {}; r.devices = (r.devices || []).filter(d => d.id !== id); save(); return H.remoteInfo(); },
+  apkQr: async () => QR.svg(APK_URL, { ecl: 'M', border: 2 }),
+  remoteOpen: async w => {
+    if (w === 'netplwiz') spawn('netplwiz', [], { detached: true, stdio: 'ignore', windowsHide: false }).unref();
+    else if (w === 'signin') await shell.openExternal('ms-settings:signinoptions');
+    else if (w === 'power') await shell.openExternal('ms-settings:powersleep');
+    else if (w === 'apk') await shell.openExternal(APK_URL);
+  },
+  remotePrepare: async () => prepareWake(),
   // botones propios de la ventana (minimizar, maximizar, cerrar), como en Discord
   win: async a => {
     if (!win || win.isDestroyed()) return null;
@@ -2776,9 +2850,14 @@ Object.assign(H, {
   fsReveal: async (id, rel) => { const s = srv(id), f = inside(s, rel); if (fs.statSync(f).isDirectory()) await shell.openPath(f); else shell.showItemInFolder(f); },
 });
 
+remote = require('./remote.js')({ H, cfg, save, log, send, toast, J, version: app.getVersion() });
 ipcMain.handle('call', async (e, n, ...a) => {
   if (typeof H[n] !== 'function') throw new Error('Acción desconocida: ' + n);
-  try { return await H[n](...a); }
+  try {
+    const r = await H[n](...a);
+    if (remote) { if (remote.ALLOWED.has(n) && !remote.READONLY.has(n)) remote.broadcast('changed', { fn: n, from: 'pc' }); if (n === 'setPref' && a[0] === 'look') remote.broadcast('look', cfg().look || {}); }
+    return r;
+  }
   catch (err) { if (n !== 'autologin') log(`[error] ${n}: ${err && err.stack || err}`); throw err; }
 });
 process.on('uncaughtException', e => log('[error grave] ' + (e && e.stack || e)));
@@ -2804,7 +2883,8 @@ else {
     const hidden = process.argv.includes('--compass-hidden');
     win.once('ready-to-show', () => {
       applyLook();
-      if (hidden && cfg().autostartServer) { makeTray(); } else win.show();
+      if (hidden && (cfg().autostartServer || (cfg().remote || {}).on)) { makeTray(); } else win.show();
+      if ((cfg().remote || {}).on) remote.start().catch(e => log('Móvil: ' + e.message));
       const a = cfg().autostartServer;   // 24/7: el servidor elegido arranca solo al abrir Compass
       if (a && srv(a)) setTimeout(() => H.hostStart(a, { force: true }).then(() => toast('Servidor arrancado automáticamente (24/7)', 'ok')).catch(e => log('Arranque automático: ' + e.message)), 2500);
     });
@@ -2815,7 +2895,13 @@ else {
     win.webContents.on('preload-error', (e, p, err) => dialog.showErrorBox('Error del preload', String(err)));
     win.webContents.on('before-input-event', (e, i) => { if (i.type === 'keyDown' && (i.key === 'F12' || (i.control && i.shift && i.key.toLowerCase() === 'i'))) win.webContents.toggleDevTools(); });
     win.on('close', async e => {
-      if (quitting || !run) return;
+      if (quitting) return;
+      if (!run && (cfg().remote || {}).on) {   // con la app del móvil activada, Compass se queda junto al reloj para poder recibir órdenes
+        e.preventDefault(); makeTray(); win.hide();
+        if (!cfg().trayTold) { cfg().trayTold = true; save(); try { const { Notification } = require('electron'); new Notification({ title: 'Compass sigue abierto', body: 'Está junto al reloj para que puedas encender tus servidores desde el móvil. Para cerrarlo del todo: clic derecho en el icono, Salir.', icon: path.join(__dirname, 'assets', 'icon.png') }).show(); } catch {} }
+        return;
+      }
+      if (!run) return;
       e.preventDefault();
       const r = await dialog.showMessageBox(win, { type: 'question', title: 'Servidor encendido', message: 'Tu servidor sigue encendido',
         detail: 'Puedes dejarlo funcionando en segundo plano (icono junto al reloj) o apagarlo y salir.',

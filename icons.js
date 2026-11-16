@@ -52,6 +52,8 @@ const ICONS = {
   clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5.5l3.5 2"/>',
   seed: '<path d="M12 21v-9"/><path d="M12 12c0-4.5-3.5-7-8-7 0 4.5 3 7 8 7zM12 14.5c0-4 3-6.5 8-6.5 0 4-3 6.5-8 6.5z"/>',
   sword: '<path d="M20 4v4.5L10.5 18 6 13.5 15.5 4z"/><path d="m4.5 15 4.5 4.5M3 21l3-3"/>',
+  phone: '<rect x="6" y="2.5" width="12" height="19"/><path d="M10 18.5h4"/>' + PX(11, 5),
+  qr: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>' + PX(15, 15) + PX(19, 19) + PX(19, 15) + PX(15, 19) + PX(5.5, 5.5) + PX(16.5, 5.5) + PX(5.5, 16.5),
   key: '<rect x="2.5" y="9" width="7" height="7"/><path d="M9.5 12.5H21M17.5 12.5V16M20.5 12.5V15"/>',
   door: '<path d="M14 3h6v18h-6"/><path d="M3 12h11M10 8l4 4-4 4"/>',
   layers: '<path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5"/>',

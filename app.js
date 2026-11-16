@@ -126,8 +126,11 @@ function setModeNow(m, opts = {}) {
   else openHost();
 }
 const PLAY_PAGES = { home: () => renderHome(), profiles: () => renderProfiles(), mods: () => renderModsPage() };
+// las animaciones de entrada se ven al cambiar de página o de sección; al actualizar datos o pulsar botones, no
+function entering() { const R = document.documentElement; R.classList.add('enter'); clearTimeout(entering.t); entering.t = setTimeout(() => R.classList.remove('enter'), 1300); }
 function go(p) {
   if (p === 'settings') { openSettings(); return; }
+  entering();
   if (!PLAY_PAGES[p]) p = 'home';   // nunca dejar la pantalla vacía por una página desconocida
   if (p !== 'settings') PREV = p;
   PAGE = p; $('#h-server').hidden = true;
@@ -138,6 +141,7 @@ function go(p) {
   catch (e) { reportError(e); if (p !== 'home') go('home'); }
 }
 function openHost() {
+  entering();
   PAGE = 'host'; $$('.page').forEach(s => s.classList.remove('on')); $('#h-server').hidden = false; $('#view').scrollTop = 0;
   renderRailServers(); renderHost();
 }
@@ -269,7 +273,7 @@ async function skinDialog() {
   load().catch(e => side.replaceChildren(el('div', { class: 'empty', style: 'padding:30px' }, el('b', {}, 'No he podido leer tu skin'), clean(e))));
   await modal('Tu skin y tu capa', body, [{ t: 'Cerrar', v: true }], true);
 }
-const doLogin = b => act(b, async () => { ME = await A.call('login'); paintAcct(); if (PAGE === 'home') renderHome(); if (setOpen()) renderSettings(); toast('Hola, ' + ME.name, 'ok'); });
+const doLogin = b => act(b, async () => { ME = await A.call('login'); paintAcct(); if (PAGE === 'home') renderHome(); refreshSettings(); toast('Hola, ' + ME.name, 'ok'); });
 
 // ---------- líneas de consola (solo la del servidor; lo del juego se guarda en el registro) ----------
 function lineCls(x) { return /ERROR|Exception|FATAL|\bfail/i.test(x) ? 'e' : /WARN/.test(x) ? 'w' : /^\[Compass\]|^> /.test(x) ? 'c' : / joined the game/.test(x) ? 'j' : ''; }
@@ -711,27 +715,31 @@ function renderModsPage() { renderStore(); }
 let STAB = 'apariencia';
 function renderSettings() {
   const R = $('#p-settings');
-  const SECS = [['apariencia', 'Apariencia', 'palette'], ['cuenta', 'Cuenta', 'user'], ['jugar', 'Al jugar', 'play'], ['servidores', 'Servidores', 'server'], ['mods', 'Mods y mapas', 'bag'], ['datos', 'Carpetas y registro', 'folder'], ['actualizar', 'Actualizaciones', 'download'], ['acerca', 'Acerca de', 'info']];
+  const SECS = [['apariencia', 'Apariencia', 'palette'], ['cuenta', 'Cuenta', 'user'], ['jugar', 'Al jugar', 'play'], ['servidores', 'Servidores', 'server'], ['mods', 'Mods y mapas', 'bag'], ['datos', 'Carpetas y registro', 'folder'], ['movil', 'App del móvil', 'phone'], ['actualizar', 'Actualizaciones', 'download'], ['acerca', 'Acerca de', 'info']];
   if (!SECS.some(x => x[0] === STAB)) STAB = 'apariencia';
   const ink = el('span', { class: 'ink' });
   const nav = el('nav', { class: 'setnav' }, ink, ...SECS.map(([k, t, i]) => el('button', { class: k === STAB ? 'on' : '', 'data-k': k, onclick: () => show(k) }, I(i, 16), el('span', {}, t))));
   const body = el('div', { class: 'setbody' });
   const moveInk = () => { const b = $(`button[data-k="${STAB}"]`, nav); if (b) { ink.style.transform = `translateY(${b.offsetTop}px)`; ink.style.height = b.offsetHeight + 'px'; } };
-  function show(k) {
+  function show(k, still) {
+    if (!still) entering();
+    const same = k === STAB;
     const order = SECS.map(x => x[0]), dir = order.indexOf(k) >= order.indexOf(STAB) ? 1 : -1;
     STAB = k; $$('button', nav).forEach(b => b.classList.toggle('on', b.dataset.k === k)); moveInk();
     const sec = el('div', { class: 'setsec', style: `--dir:${dir}` }, ...SECTION[k]());
     $$('.panel', sec).forEach((p, i) => p.style.setProperty('--i', i));
+    const top = still && same ? body.scrollTop : 0;
     body.replaceChildren(sec);
+    if (top) body.scrollTop = top;   // al actualizar no te manda arriba del todo
   }
   const SECTION = {
-    apariencia: () => lookSection(() => show('apariencia')),
+    apariencia: () => lookSection(() => show('apariencia', true)),
     cuenta: () => {
       const av = el('span', { class: 'av', style: 'width:56px;height:56px;font-size:22px' }); avatar(av, ME && ME.name, ME && ME.uuid);
       return [el('div', { class: 'panel' }, el('h3', {}, 'Cuenta de Microsoft'),
         el('div', { class: 'row nw' }, av, el('div', { style: 'flex:1' }, el('b', { style: 'font-size:17px' }, ME ? ME.name : 'Sin sesión'), el('small', { style: 'display:block' }, ME ? 'Sesión guardada en este PC' : 'Inicia sesión para jugar')),
           ME ? el('button', { class: 'btn sm', onclick: () => { closeSettings(); skinDialog(); } }, I('user', 14), 'Skin y capa') : null,
-          ME ? el('button', { class: 'btn dng sm', onclick: async () => { await A.call('logout'); ME = null; paintAcct(); show('cuenta'); toast('Sesión cerrada'); } }, 'Cerrar sesión')
+          ME ? el('button', { class: 'btn dng sm', onclick: async () => { await A.call('logout'); ME = null; paintAcct(); show('cuenta', true); toast('Sesión cerrada'); } }, 'Cerrar sesión')
             : el('button', { class: 'btn pri sm', onclick: e => doLogin(e.currentTarget) }, 'Iniciar sesión')))];
     },
     jugar: () => [
@@ -775,13 +783,28 @@ function renderSettings() {
         el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Todo lo que pasa al preparar y abrir Minecraft se guarda aquí, en vez de llenar la pantalla. Si algo falla, ábrelo o mándaselo a quien te ayude.'),
         el('div', { class: 'row' }, B('filetext', 'Abrir registro', () => A.call('openLog'), 'sm pri')))],
     actualizar: () => updSection(),
+    movil: () => mobSection(),
     acerca: () => [
       el('div', { class: 'panel about' }, el('span', { class: 'aboutmark', html: LOGO }),
         el('div', {}, el('b', { style: 'font:600 26px var(--disp);font-stretch:80%;display:block' }, 'Compass Launcher ' + (SYS.app || '')),
-          el('small', { style: 'display:block;margin-top:4px' }, 'Atajos: Ctrl+1 Jugar' + (hostOn() ? ', Ctrl+2 Servidores' : '') + ', Ctrl+, Ajustes, F12 herramientas de desarrollo.')))],
+          el('small', { style: 'display:block;margin-top:4px' }, 'Atajos: Ctrl+1 Jugar' + (hostOn() ? ', Ctrl+2 Servidores' : '') + ', Ctrl+, Ajustes, F12 herramientas de desarrollo.'))),
+      el('div', { class: 'panel aboutme' }, el('h3', {}, 'Quién hace esto'),
+        el('p', { html: '¡Buenas! Soy <b>luckicla</b> y hago Compass Launcher yo solo, en mis ratos libres, por puro gusto y porque me lo paso bien programando.' }),
+        el('p', {}, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos… y bueno, se me ha ido un poco de las manos.'),
+        el('p', {}, 'Es gratis, sin anuncios y no recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
+        el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: () => A.call('openUrl', 'https://luckicla.github.io/compass-launcher/') }, I('globe', 14), 'Web de Compass'),
+          el('button', { class: 'btn sm ghost', onclick: () => A.call('openUrl', 'https://github.com/luckicla/compass-launcher') }, I('external', 14), 'GitHub')),
+        el('small', { style: 'display:block;margin-top:10px;color:var(--dim)' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'))],
   };
   R.replaceChildren(el('div', { class: 'setwrap' }, nav, body));
-  show(STAB); requestAnimationFrame(moveInk);
+  show(STAB, renderSettings.still); requestAnimationFrame(moveInk);
+  const sc = renderSettings.keepScroll; if (sc != null) requestAnimationFrame(() => { body.scrollTop = sc; });
+}
+// vuelve a dibujar la sección abierta de Ajustes sin animaciones y sin moverte del sitio (para datos que cambian)
+function refreshSettings() {
+  if (!setOpen()) return;
+  const b = $('#p-settings .setbody'); renderSettings.still = true; renderSettings.keepScroll = b ? b.scrollTop : null;
+  try { renderSettings(); } finally { renderSettings.still = false; renderSettings.keepScroll = null; }
 }
 
 // =====================================================================
@@ -1964,7 +1987,7 @@ function paintUpd(full) {
   if (setOpen() && STAB === 'actualizar') {
     if (!full && lastUpdState === u.state && u.state === 'downloading') {   // solo cambia el porcentaje: se toca la barra sin redibujar
       const b = $('#updBar'), sb = $('#updSub'); if (b) b.style.width = (u.pct || 0) + '%'; if (sb) sb.textContent = `Compass ${u.version || ''} · ${u.pct || 0} %`;
-    } else renderSettings();
+    } else refreshSettings();
   }
   lastUpdState = u.state;
   if (u.state === 'available' || u.state === 'downloaded') updCard(u);
@@ -1991,3 +2014,116 @@ function updCard(u) {
 A.on('upd', u => { const changed = !UPD || UPD.state !== u.state; UPD = u; paintUpd(changed); });
 A.on('openUpdates', () => openSettings('actualizar'));
 A.call('updState').then(u => { if (u) { UPD = u; paintUpd(true); } }).catch(() => {});
+
+
+// =====================================================================
+// APP DEL MÓVIL: descarga con QR, emparejar y encender el PC desde el móvil
+// =====================================================================
+let MOB = null;
+function mobSection() {
+  const wrap = el('div', { class: 'mobwrap' }, el('div', { class: 'panel' }, el('p', { class: 'hint' }, 'Cargando…')));
+  A.call('remoteInfo').then(i => { MOB = i; paintMob(wrap); }).catch(e => wrap.replaceChildren(el('div', { class: 'panel' }, el('p', {}, clean(e)))));
+  return [wrap];
+}
+const ago = t => { if (!t) return 'nunca'; const m = Math.round((Date.now() - t) / 60000); return m < 1 ? 'ahora mismo' : m < 60 ? `hace ${m} min` : m < 1440 ? `hace ${Math.round(m / 60)} h` : `hace ${Math.round(m / 1440)} días`; };
+function mobStep(n, title, sub, ...body) {
+  return el('div', { class: 'panel mobstep' }, el('div', { class: 'mobnum' }, String(n)), el('div', { class: 'mobbody' }, el('h3', {}, title), sub ? el('p', { class: 'mobsub' }, sub) : null, ...body));
+}
+function paintMob(wrap) {
+  const i = MOB, on = !!i.on;
+  const qrBox = (svg, cap) => el('div', { class: 'mobqr' }, el('div', { class: 'qrimg', html: svg }), cap ? el('small', {}, cap) : null);
+  const apkQr = el('div', { class: 'mobqr' }, el('div', { class: 'qrimg' }, el('small', {}, '…')), el('small', {}, 'Escanéalo con la cámara del móvil'));
+  A.call('apkQr').then(svg => { $('.qrimg', apkQr).innerHTML = svg; }).catch(() => {});
+  const pairBox = el('div', { class: 'mobqr big' }, el('div', { class: 'qrimg' }, el('small', {}, on ? '…' : '')), el('small', {}, 'Escanéalo desde la app Compass'));
+  if (on) A.call('remotePairing').then(p => { $('.qrimg', pairBox).innerHTML = p.svg; pairBox.dataset.code = p.code; }).catch(() => {});
+  const prep = i.prepared, upnp = i.upnp;
+  const chip = (ok, txt) => el('span', { class: 'mobchip ' + (ok === true ? 'ok' : ok === false ? 'bad' : '') }, I(ok === true ? 'check' : ok === false ? 'alert' : 'info', 13), txt);
+
+  wrap.replaceChildren(
+    // portada
+    el('div', { class: 'panel mobhero' },
+      el('div', { class: 'mobphone' }, el('div', { class: 'scr' }, el('span', { class: 'lg', html: LOGO }), el('b', {}, 'Compass'), el('i', {}), el('i', {}), el('i', { class: 'on' }))),
+      el('div', { class: 'mobherotx' },
+        el('small', { class: 'mobkick' }, 'Nuevo'),
+        el('h2', {}, 'Tus servidores, en el bolsillo'),
+        el('p', {}, 'Con la app Compass para Android enciendes el PC y tus servidores desde donde estés, ves la consola y quién juega, y cambias cualquier ajuste. Lo que hagas en el móvil se ve al momento aquí, y al revés.'),
+        el('div', { class: 'row', style: 'gap:8px;margin-top:8px' }, chip(null, 'Android 7 o más nuevo'), chip(null, 'Gratis, sin cuentas')))),
+    // 1. descargar
+    mobStep(1, 'Descarga la app en tu móvil', 'Apunta con la cámara del móvil a este código y toca el enlace que aparece. Se descarga «Compass-Movil.apk».',
+      el('div', { class: 'mobsplit' }, apkQr,
+        el('ol', { class: 'mobhow' },
+          el('li', {}, 'Abre la ', el('b', {}, 'cámara'), ' del móvil y apunta al código.'),
+          el('li', {}, 'Toca el enlace: se descarga el archivo ', el('b', {}, 'Compass-Movil.apk'), '.'),
+          el('li', {}, 'Ábrelo. Si Android dice que no permite instalar apps de este origen, toca ', el('b', {}, 'Ajustes'), ' y activa ', el('b', {}, '«Permitir de esta fuente»'), '.'),
+          el('li', {}, 'Toca ', el('b', {}, 'Instalar'), '. Si sale Play Protect, toca ', el('b', {}, '«Instalar de todas formas»'), ' (es normal en apps que no vienen de Play Store).'),
+          el('div', { class: 'row', style: 'margin-top:6px' }, el('button', { class: 'btn sm ghost', onclick: () => A.call('remoteOpen', 'apk') }, I('external', 14), 'Abrir el enlace aquí'))))),
+    // 2. activar
+    mobStep(2, 'Activa el control desde el móvil', 'Compass abrirá una puerta segura (puerto ' + i.port + ') solo para tus móviles emparejados.',
+      el('div', { class: 'toggle' }, sw(on, async v => { try { MOB = await A.call('remoteSet', { on: v }); paintMob(wrap); toast(v ? 'Control desde el móvil activado' : 'Control desde el móvil desactivado', 'ok', 2500); } catch (e) { toast(clean(e), 'error'); } }),
+        el('div', { class: 't' }, el('b', {}, 'Controlar Compass desde el móvil'), el('small', {}, 'Compass se abrirá solo al encender el PC (escondido junto al reloj) para que el móvil siempre lo encuentre.'))),
+      on ? el('div', { class: 'row', style: 'margin-top:12px;gap:10px;align-items:center' }, el('small', { style: 'color:var(--mut)' }, 'Nombre de este PC en la app:'),
+        el('input', { class: 'in', value: i.name || '', maxlength: 40, style: 'max-width:240px', onchange: async e => { MOB = await A.call('remoteSet', { name: e.target.value }); toast('Nombre guardado', 'ok', 1500); } })) : null),
+    // 3. emparejar
+    mobStep(3, 'Empareja el móvil', on ? 'Abre la app Compass, toca «Emparejar con mi PC» y apunta a este código. Solo hace falta una vez.' : 'Primero activa el paso 2.',
+      on ? el('div', { class: 'mobsplit' }, pairBox,
+        el('div', { class: 'mobdevs' },
+          el('b', {}, 'Móviles emparejados'),
+          (i.devices || []).length ? el('div', { class: 'list' }, ...(i.devices || []).map(d => el('div', { class: 'mobdev' }, I('phone', 16), el('div', { class: 't' }, el('b', {}, d.name), el('small', {}, 'Usado ' + ago(d.last))),
+            el('button', { class: 'btn ghost sm', title: 'Quitar', onclick: async () => { MOB = await A.call('remoteForget', d.id); paintMob(wrap); } }, I('x', 14)))))
+            : el('p', { class: 'hint' }, 'Todavía ninguno. Cuando escanees el código, aparecerá aquí.'),
+          el('p', { class: 'hint', style: 'margin-top:10px' }, 'El código lleva una clave secreta: no lo enseñes a nadie. Si crees que alguien lo ha visto, cámbiala:'),
+          el('div', { class: 'row' }, el('button', { class: 'btn sm dng', onclick: async () => { if (await modal('Cambiar la clave', el('p', {}, 'Todos los móviles emparejados dejarán de funcionar hasta que vuelvas a escanear el código nuevo.'), [{ t: 'Cancelar', v: false }, { t: 'Cambiar clave', v: true, cls: 'dng' }])) { MOB = await A.call('remoteNewKey'); paintMob(wrap); toast('Clave cambiada. Vuelve a emparejar tus móviles.', 'ok'); } } }, I('key', 14), 'Cambiar la clave')))) : null),
+    // 4. encender el PC
+    mobStep(4, 'Encender el PC desde el móvil', 'Opcional. Para que el botón «Encender PC» de la app despierte este ordenador aunque esté apagado.',
+      el('div', { class: 'mobchecks' },
+        chip(i.wired === true ? true : i.wired === false ? false : null, i.wired === false ? 'Va por WiFi (Wake-on-LAN casi nunca funciona por WiFi)' : 'Conectado por cable'),
+        chip(prep ? (prep.adapters.some(a => a.ok) && prep.fastStartupOff) : null, prep ? (prep.adapters.some(a => a.ok) ? 'Tarjeta de red preparada' : 'La tarjeta no acepta Wake-on-LAN') : 'Falta preparar Windows'),
+        chip(upnp ? !!upnp.ok : null, upnp ? (upnp.ok ? 'Router: puerto abierto solo' : 'Router: no abre puertos solo') : 'Router: sin comprobar'),
+        i.mac ? chip(null, 'MAC ' + i.mac) : null),
+      el('div', { class: 'mobsub2' },
+        el('div', { class: 'mobpart' },
+          el('b', {}, 'A. Preparar Windows'), el('small', {}, 'Un clic: activa «despertar con paquete mágico» en la tarjeta de red, quita el «inicio rápido» de Windows (si no, apagado no se despierta) y abre el cortafuegos para la app. Windows te pedirá permiso de administrador.'),
+          el('div', { class: 'row', style: 'margin-top:8px' }, el('button', { class: 'btn pri sm', onclick: e => act(e.currentTarget, async () => { const r = await A.call('remotePrepare'); MOB = await A.call('remoteInfo'); paintMob(wrap); toast(r.adapters.some(a => a.ok) ? 'Listo: Windows ya está preparado' : 'Hecho, pero tu tarjeta de red no confirma Wake-on-LAN: mira la BIOS (paso B)', r.adapters.some(a => a.ok) ? 'ok' : 'warn', 7000); }) }, I('bolt', 14), prep ? 'Volver a preparar' : 'Preparar este PC'))),
+        el('div', { class: 'mobpart' },
+          el('b', {}, 'B. Activarlo en la BIOS (solo una vez)'), el('small', {}, 'Reinicia el PC y entra en la BIOS (suele ser la tecla Supr o F2 al encender). Busca y activa la opción, que según la placa se llama:'),
+          el('div', { class: 'mobtags' }, ...['Wake on LAN', 'Power On By PCI-E', 'Resume by LAN', 'PME Event Wake Up'].map(t => el('span', { class: 'tag' }, t))),
+          el('small', { style: 'margin-top:6px;display:block' }, 'Y si existe, desactiva «ErP» o «Deep Sleep». Guarda con F10.')),
+        el('div', { class: 'mobpart' },
+          el('b', {}, 'C. Que Windows entre solo'), el('small', {}, 'Al encender, Windows tiene que entrar en tu usuario sin pedir contraseña para que Compass se abra. En «Opciones de inicio de sesión» quita «Permitir solo Windows Hello»; luego, en la ventana de usuarios, desmarca «Los usuarios deben escribir su nombre y contraseña».'),
+          el('div', { class: 'row', style: 'margin-top:8px;gap:8px' }, el('button', { class: 'btn sm', onclick: () => A.call('remoteOpen', 'signin') }, I('external', 14), '1. Opciones de inicio de sesión'), el('button', { class: 'btn sm', onclick: () => A.call('remoteOpen', 'netplwiz') }, I('users', 14), '2. Ventana de usuarios'))),
+        el('div', { class: 'mobpart' },
+          el('b', {}, 'D. Desde fuera de casa'), el('small', {}, upnp && upnp.ok ? 'Tu router ha dejado abrir el puerto de la app solo: el control funciona desde cualquier sitio. Para despertar el PC desde fuera, la app manda el aviso a tu router; si tu router no lo pasa al PC apagado, abre en el router el puerto UDP 9 hacia este PC (' + (i.lan || 'IP del PC') + ').'
+            : 'Tu router no deja abrir puertos solo. Entra en tu router (normalmente 192.168.1.1) y abre el puerto TCP ' + i.port + ' hacia este PC (' + (i.lan || 'IP del PC') + ') y el UDP 9 para despertarlo. En casa (misma WiFi) funciona sin hacer nada.'),
+          el('small', { style: 'margin-top:6px;display:block' }, 'Alternativa sin BIOS ni router: un enchufe inteligente + en la BIOS «Restore on AC Power Loss: Power On». Al encender el enchufe desde su app, el PC arranca solo.')))),
+    // datos
+    el('div', { class: 'panel mobfoot' },
+      el('small', {}, 'En casa: ', el('b', {}, i.lan ? `${i.lan}:${i.port}` : '—'), ' · Desde fuera: ', el('b', {}, i.pub ? `${i.pub}:${i.port}` : '—'), ' · Versión ' + (i.version || '')),
+      el('small', {}, on ? `${i.clients ? i.clients + ' móvil(es) conectado(s) ahora' : 'Ningún móvil conectado ahora'}` : 'Control desde el móvil desactivado')),
+  );
+  paintIcons(wrap);
+}
+// cambios hechos desde el móvil: se recarga lo que estés viendo (sin pisarte si estás escribiendo)
+let remotePending = false;
+async function remoteRefresh() {
+  const a = document.activeElement;
+  if (a && /INPUT|TEXTAREA|SELECT/.test(a.tagName) && $('#view').contains(a)) { if (!remotePending) { remotePending = true; a.addEventListener('blur', () => { remotePending = false; remoteRefresh(); }, { once: true }); } return; }
+  try {
+    await reload();
+    renderRailServers(); renderFriends();
+    if (MODE === 'host' && PAGE === 'host') renderHost(); else if (MODE === 'play' && PAGE === 'home') renderHome();
+  } catch (e) { reportError(e); }
+}
+let rmTimer = null;
+A.on('remoteChanged', () => { clearTimeout(rmTimer); rmTimer = setTimeout(remoteRefresh, 250); });
+A.on('remoteClients', n => { if (MOB) MOB.clients = n; const f = $('.mobfoot small:last-child'); if (f && MOB && MOB.on) f.textContent = n ? n + ' móvil(es) conectado(s) ahora' : 'Ningún móvil conectado ahora'; });
+A.on('remoteDevices', () => { if (setOpen() && STAB === 'movil') A.call('remoteInfo').then(i => { MOB = i; const w = $('.mobwrap'); if (w) paintMob(w); }).catch(() => {}); });
+
+// al redibujar el panel del servidor (por un botón o un cambio desde el móvil) no se pierde la posición
+{
+  const inner = renderHost;
+  renderHost = function () {
+    const v = $('#view'), key = selS + '|' + TAB, top = v && renderHost.key === key ? v.scrollTop : 0;
+    inner(); renderHost.key = key;
+    if (top && v) { v.scrollTop = top; requestAnimationFrame(() => { v.scrollTop = top; }); }
+  };
+}

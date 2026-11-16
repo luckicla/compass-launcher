@@ -1,7 +1,8 @@
 # Cada vez que se sube código a GitHub:
-#  - Se crea el instalador y el portable de Windows.
-#  - Si la versión de package.json es nueva (no hay un release con ese número), se publica en «Releases»
-#    y todos los Compass instalados la reciben solos (Ajustes > Actualizaciones).
+#  - Se crean el instalador y el portable de Windows, y la app de Android (Compass-Movil.apk).
+#  - Si la versión de package.json es nueva (no hay un release con ese número), se publica todo en «Releases»:
+#    los Compass instalados y la app del móvil la reciben solos.
+#  - Se actualiza la web (GitHub Pages).
 name: build
 on:
   push:
@@ -9,31 +10,95 @@ on:
   workflow_dispatch:
 permissions:
   contents: write
+  pages: write
+  id-token: write
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: false
 jobs:
+  info:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.ver.outputs.version }}
+      nueva: ${{ steps.ver.outputs.nueva }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: ver
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then echo "nueva=no" >> "$GITHUB_OUTPUT"; else echo "nueva=si" >> "$GITHUB_OUTPUT"; fi
+
   win:
+    needs: info
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
-        with: { node-version: 20 }
-      - name: ¿Versión nueva?
-        id: ver
-        shell: bash
-        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
-        run: |
-          V=$(node -p "require('./package.json').version")
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-          if gh release view "v$V" >/dev/null 2>&1; then echo "nueva=no" >> "$GITHUB_OUTPUT"; else echo "nueva=si" >> "$GITHUB_OUTPUT"; fi
+        with:
+          node-version: 20
       - run: npm install
       - name: Crear y publicar la versión
-        if: steps.ver.outputs.nueva == 'si'
+        if: needs.info.outputs.nueva == 'si'
         run: npm run release
-        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - name: Solo crear (la versión ya estaba publicada)
-        if: steps.ver.outputs.nueva == 'no'
+        if: needs.info.outputs.nueva != 'si'
         run: npm run dist
-        env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
       - uses: actions/upload-artifact@v4
         with:
-          name: CompassLauncher-${{ steps.ver.outputs.version }}
+          name: CompassLauncher-${{ needs.info.outputs.version }}
           path: dist/*.exe
+
+  android:
+    needs: [info, win]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "8.9"
+      - name: Mismos temas y fondos que el PC
+        run: cp theme.js mobile/app/src/main/assets/www/theme.js
+      - name: Crear la app de Android
+        run: gradle -p mobile assembleRelease -PappVersion=${{ needs.info.outputs.version }} --no-daemon --stacktrace
+      - run: cp mobile/app/build/outputs/apk/release/app-release.apk Compass-Movil.apk
+      - name: Subir la app al release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.info.outputs.version }}" Compass-Movil.apk --clobber --repo "$GITHUB_REPOSITORY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: CompassMovil-${{ needs.info.outputs.version }}
+          path: Compass-Movil.apk
+
+  web:
+    needs: info
+    runs-on: ubuntu-latest
+    # la web se publica en GitHub Pages (hay que activarlo una vez: Settings > Pages > Source: GitHub Actions)
+    continue-on-error: true
+    environment:
+      name: github-pages
+      url: ${{ steps.dep.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Mismos temas, iconos y QR que la app
+        run: cp theme.js icons.js qr.js docs/
+      - uses: actions/configure-pages@v5
+        with:
+          enablement: true
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs
+      - id: dep
+        uses: actions/deploy-pages@v4

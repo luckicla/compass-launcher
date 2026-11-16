@@ -1,0 +1,50 @@
+plugins {
+    id 'com.android.application'
+}
+
+// La versión de la app es la misma que la de Compass Launcher (package.json): la pasa GitHub al compilar.
+def ver = (project.findProperty('appVersion') ?: '5.1.0').toString()
+def nums = ver.tokenize('.').collect { (it.replaceAll(/[^0-9].*$/, '') ?: '0') as int }
+while (nums.size() < 3) nums << 0
+
+android {
+    namespace 'es.compass.movil'
+    compileSdk 34
+
+    defaultConfig {
+        applicationId 'es.compass.movil'
+        minSdk 24
+        targetSdk 34
+        versionName ver
+        versionCode nums[0] * 10000 + nums[1] * 100 + nums[2]
+    }
+
+    signingConfigs {
+        release {
+            // misma firma siempre: así cada APK nuevo se instala encima del anterior sin desinstalar
+            storeFile file(System.getenv('KS_FILE') ?: '../compass-movil.jks')
+            storePassword System.getenv('KS_PASS') ?: 'compassmovil'
+            keyAlias 'compass'
+            keyPassword System.getenv('KS_PASS') ?: 'compassmovil'
+        }
+    }
+
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.release
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_17
+        targetCompatibility JavaVersion.VERSION_17
+    }
+
+    buildFeatures { buildConfig true }
+}
+
+dependencies {
+    implementation 'com.journeyapps:zxing-android-embedded:4.3.0'
+    implementation 'androidx.core:core:1.13.1'
+}
