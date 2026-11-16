@@ -1,7 +1,12 @@
-COMPASS LAUNCHER 5.3.1
-======================
+COMPASS LAUNCHER 5.4
+====================
 
 Web: https://luckicla.github.io/compass-launcher  ·  Hecho por luckicla  ·  © 2026, todos los derechos reservados.
+
+NOVEDADES DE LA 5.4
+  - Plugin de Compass para Paper con los mismos comandos y autocompletado.
+  - «Conectar al servidor» entra directo y desaparece «Un jugador» en los perfiles de servidor (1.20+).
+  - El mod / plugin sale en la lista del servidor y se baja de GitHub si faltara.
 
 NOVEDADES DE LA 5.3.1
   - Mod de comandos de Compass para servidores Fabric 1.20, 1.21 y 26.1: /tpa, /tpaccept, /tpdeny,

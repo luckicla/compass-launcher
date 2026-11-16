@@ -1,0 +1,50 @@
+name: CompassComandos
+version: '${version}'
+main: net.luckicla.compass.CompassPlugin
+api-version: '1.20'
+author: luckicla
+website: https://luckicla.github.io/compass-launcher
+description: "Comandos de Compass Launcher con autocompletado (/tpa, /ctp, /sethome, /home...). Se configura desde Compass Launcher."
+commands:
+  compass:
+    description: "Tus comandos de Compass"
+    usage: "/compass"
+  tpa:
+    description: "Pedir ir hasta otro jugador"
+    usage: "/tpa <jugador>"
+    permission: compass.tpa
+  tpaccept:
+    description: "Aceptar un tpa"
+    usage: "/tpaccept"
+    permission: compass.tpa
+  tpdeny:
+    description: "Rechazar un tpa"
+    usage: "/tpdeny"
+    permission: compass.tpa
+  ctp:
+    description: "Como el /tp normal sin ser OP"
+    usage: "/ctp <jugador o x y z> [otro]"
+    permission: compass.ctp
+  sethome:
+    description: "Guardar una casa"
+    usage: "/sethome [nombre]"
+    permission: compass.home
+  home:
+    description: "Ir a tu casa"
+    usage: "/home [nombre]"
+    permission: compass.home
+  homes:
+    description: "Ver tus casas"
+    usage: "/homes"
+    permission: compass.home
+  delhome:
+    description: "Borrar una casa"
+    usage: "/delhome <nombre>"
+    permission: compass.home
+permissions:
+  compass.tpa:
+    default: op
+  compass.ctp:
+    default: op
+  compass.home:
+    default: op

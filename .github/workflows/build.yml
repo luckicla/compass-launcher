@@ -44,7 +44,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           name: compass-mod
-          path: build/mod
+          path: modjars
       - uses: actions/setup-node@v4
         with:
           node-version: 20
@@ -60,6 +60,19 @@ jobs:
         run: npm run dist
         env:
           CSC_IDENTITY_AUTO_DISCOVERY: "false"
+      - name: Comprobar que el mod y el plugin van dentro de Compass
+        shell: bash
+        run: |
+          ls -la dist/win-unpacked/resources/mod/
+          test -f dist/win-unpacked/resources/mod/compass-comandos-1.20.jar
+          test -f dist/win-unpacked/resources/mod/compass-comandos-26.1.jar
+          test -f dist/win-unpacked/resources/mod/compass-plugin.jar
+      - name: Subir el mod y el plugin al release (por si a algún Compass le faltan)
+        if: needs.info.outputs.nueva == 'si'
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: gh release upload "v${{ needs.info.outputs.version }}" modjars/*.jar --clobber --repo "$GITHUB_REPOSITORY"
       - uses: actions/upload-artifact@v4
         with:
           name: CompassLauncher-${{ needs.info.outputs.version }}

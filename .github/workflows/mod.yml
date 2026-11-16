@@ -37,12 +37,15 @@ jobs:
         run: gradle -p mod/v120 build --no-daemon --stacktrace
       - name: Compilar para 26.1
         run: gradle -p mod/v261 build --no-daemon --stacktrace
+      - name: Compilar el plugin de Paper
+        run: gradle -p plugin build --no-daemon --stacktrace -Pmod_version=$(node -p "require('./package.json').version")
       - name: Juntar
         run: |
           mkdir -p out
+          cp plugin/build/libs/compass-plugin.jar out/compass-plugin.jar
           cp mod/v120/build/libs/compass-comandos-1.20-*.jar out/compass-comandos-1.20.jar
           cp mod/v261/build/libs/compass-comandos-26.1-*.jar out/compass-comandos-26.1.jar
-          ls -la out; unzip -p out/compass-comandos-1.20.jar fabric.mod.json
+          ls -la out; unzip -p out/compass-comandos-1.20.jar fabric.mod.json; unzip -p out/compass-plugin.jar plugin.yml | head -5
       - uses: actions/upload-artifact@v4
         with:
           name: compass-mod
@@ -90,3 +93,42 @@ jobs:
           N=$(grep -c "\[CompassCmd\] prueba" log.txt); echo "comandos que han llegado: $N"
           test "$N" -ge 11
           grep -q "Done (" log.txt
+
+  test-paper:
+    needs: build
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ["1.20.4", "1.21.4", "1.21.11", "26.1.2"]
+    steps:
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: actions/download-artifact@v4
+        with:
+          name: compass-mod
+          path: jars
+      - name: Servidor Paper ${{ matrix.mc }} con el plugin
+        run: |
+          set -e
+          MC=${{ matrix.mc }}
+          mkdir srv && cd srv && mkdir plugins
+          URL=$(curl -fsSL "https://fill.papermc.io/v3/projects/paper/versions/$MC/builds" | jq -r '(if type=="array" then . else .builds end) | (map(select((.channel|ascii_upcase)=="STABLE"))[0] // .[0]) | .downloads["server:default"].url' || true)
+          if [ -z "$URL" ] || [ "$URL" = null ]; then B=$(curl -fsSL "https://api.papermc.io/v2/projects/paper/versions/$MC/builds" | jq -r '.builds[-1].build'); URL="https://api.papermc.io/v2/projects/paper/versions/$MC/builds/$B/downloads/paper-$MC-$B.jar"; fi
+          echo "$URL"; curl -fsSL -o server.jar "$URL"
+          cp ../jars/compass-plugin.jar plugins/
+          echo "eula=true" > eula.txt
+          printf "online-mode=false\nlevel-type=minecraft\\:flat\nspawn-protection=0\nserver-port=25599\n" > server.properties
+          echo '{"token":"0123456789abcdef","tpa":"all","ctp":"all","home":"all"}' > compass-cmds.json
+          mkfifo in
+          (sleep 1; while ! grep -q "Done (" log.txt 2>/dev/null; do sleep 2; done; sleep 2
+           for c in "compass" "tpa Steve" "tpaccept" "tpdeny" "ctp 10 64 10" "ctp Steve Alex" "sethome casa" "home casa" "home" "homes" "delhome casa"; do echo "$c"; sleep 1; done
+           sleep 2; echo stop) > in &
+          timeout 900 java -Xmx2G -jar server.jar nogui < in > log.txt 2>&1 || true
+          grep -E "CompassCmd|Compass|Exception|ERROR|permission|Unknown" log.txt | grep -v "No key layers" | head -60
+          grep -q "\[CompassCmd\] comandos listos" log.txt
+          N=$(grep -c "\[CompassCmd\] prueba" log.txt); echo "comandos que han llegado: $N"
+          test "$N" -ge 11

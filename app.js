@@ -1383,7 +1383,8 @@ async function tabGente(s, body) {
 
   // comandos de Compass en el chat («!» siempre; «/» con autocompletado si el servidor lleva el mod): quién puede usarlos, cuántas casas y los tiempos
   const C = { tpa: 'all', ctp: 'perm', home: 'all', homes: 3, wait: 3, cool: 10, tpaTime: 60, mod: true, ...(D.cmds || {}) };
-  const modOk = (s.type || 'fabric') === 'fabric' && /^(1\.(20|21)|26\.1)(\.|$)/.test(s.mc || ''), P = modOk && C.mod !== false ? '/' : '!';
+  const plug = s.type === 'paper' || s.type === 'hybrid';
+  const modOk = plug ? /^(1\.2\d|2\d\.\d)/.test(s.mc || '') : (s.type || 'fabric') === 'fabric' && /^(1\.(20|21)|26\.1)(\.|$)/.test(s.mc || ''), P = modOk && C.mod !== false ? '/' : '!';
   const setC = async patch => { try { await A.call('serverSet', s.id, { cmds: { ...C, ...patch } }); Object.assign(C, patch); toast('Guardado', 'ok', 1500); tabGente(s, body); } catch (e) { toast(clean(e), 'error'); } };
   const pick = (cur, opts, fn) => { const l = opts.some(o => o[0] === cur) ? opts : [...opts, [cur, String(cur)]]; const x = el('select', { class: 'in', style: 'width:auto', onchange: e => fn(isNaN(+e.target.value) ? e.target.value : +e.target.value) }, ...l.map(([v, t]) => el('option', { value: v }, t))); x.value = cur; return x; };
   const who = (cur, fn) => pick(cur, [['off', 'Nadie'], ['perm', 'Solo con permiso'], ['all', 'Todos']], fn);
@@ -1401,8 +1402,9 @@ async function tabGente(s, body) {
     C.tpa !== 'off' ? row(`Tiempo para aceptar un ${P}tpa`, null, pick(C.tpaTime, [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']], v => setC({ tpaTime: v }))) : null,
     modOk
       ? swRow(C.mod !== false, v => setC({ mod: v }), 'Comandos con / y autocompletado',
-        'Pone el mod de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Se nota al reiniciar el servidor.')
-      : el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Los comandos con / y autocompletado (mod de Compass) son para servidores Fabric 1.20, 1.21 y 26.1. Aquí se usan con «!».'));
+        plug ? 'Pone el plugin de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Sale en la lista de plugins. Se nota al reiniciar el servidor.'
+          : 'Pone el mod de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Sale en la lista de mods. Se nota al reiniciar el servidor.')
+      : el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Los comandos con / y autocompletado (mod o plugin de Compass) son para servidores de la 1.20 en adelante (Fabric 1.20, 1.21 y 26.1; Paper 1.20 o más nuevo). Aquí se usan con «!».'));
   const homes = C.home === 'perm' ? el('div', { class: 'panel' }, el('h3', {}, I('home', 16), ' Permiso de casas', el('span', { class: 'tag' + ((D.home || []).length ? ' acc' : '') }, String((D.home || []).length))),
     (D.home || []).length ? el('div', { class: 'list' }, ...D.home.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name))),
       el('button', { class: 'btn sm ghost', onclick: () => run('homeRemove', { name: t.name }, t.name + ' ya no puede usar casas') }, 'Quitar'))))

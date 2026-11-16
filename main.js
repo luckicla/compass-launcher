@@ -1032,6 +1032,7 @@ async function buildManifest(s) {
     for (const i of all) {
       const m = metaOf(path.join(mdir, i.file), i.sha1);
       if (m && m.env === 'server') continue;                // los de solo servidor no hacen falta en el cliente
+      if ((m && m.id === 'compass-comandos') || i.file.startsWith(CMD_MOD)) continue;   // el de Compass lo pone cada launcher
       if (!i.enabled && !(m && m.env === 'client')) continue;   // desactivado a mano: no se manda; los solo de cliente sí
       items.push({ ...i, m, name: i.file.replace(/\.disabled$/, '') });
     }
@@ -1370,28 +1371,65 @@ const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.wri
 // Mod «Compass: comandos» (mod/): los mismos comandos con «/» y autocompletado en servidores Fabric 1.20 – 1.21.x y 26.1.
 // El mod solo registra los comandos y avisa por la consola con una clave; lo demás lo hace chatCmd, igual que con «!».
 const CMD_MOD = 'compass-comandos.jar';
+// qué archivo va con cada servidor: plugin en Paper/Arclight (1.20 o más nuevo), mod en Fabric 1.20 – 1.21.x y 26.1
 const cmdModFile = mc => /^1\.(20|21)(\.|$)/.test(mc) ? 'compass-comandos-1.20.jar' : /^26\.1(\.|$)/.test(mc) ? 'compass-comandos-26.1.jar' : null;
-const cmdModSrc = f => [path.join(process.resourcesPath || '', 'mod', f), path.join(__dirname, 'build', 'mod', f)].find(x => { try { return fs.statSync(x).isFile(); } catch { return false; } });
+const cmdPluginOk = mc => /^1\.(2\d)(\.|$)/.test(mc) || /^2\d\.\d/.test(mc);
+const cmdKind = s => { const t = s.type || 'fabric'; return t === 'paper' || t === 'hybrid' ? (cmdPluginOk(s.mc) ? 'plugin' : null) : t === 'fabric' && cmdModFile(s.mc) ? 'mod' : null; };
+// el .jar va dentro de Compass; si faltara, se baja del release de GitHub de esta versión (o del último)
+async function cmdModSrc(f) {
+  const local = [path.join(process.resourcesPath || '', 'mod', f), path.join(__dirname, 'modjars', f)].find(x => { try { return fs.statSync(x).isFile(); } catch { return false; } });
+  if (local) return local;
+  const cache = path.join(U(), 'mod', app.getVersion(), f);
+  if (fs.existsSync(cache) && jarOk(cache)) return cache;
+  for (const u of [`https://github.com/luckicla/compass-launcher/releases/download/v${app.getVersion()}/${f}`, `https://github.com/luckicla/compass-launcher/releases/latest/download/${f}`]) {
+    try { await dl(u, cache, null, 2); log('Descargado ' + f + ' de GitHub'); return cache; } catch (e) { log(`${f}: ${e.message}`); }
+  }
+  return null;
+}
 function cmdCfgWrite(s, token) {
   const C = cmdsOf(s), f = path.join(sdir(s), 'compass-cmds.json');
   let old = {}; try { old = JSON.parse(fs.readFileSync(f, 'utf8')); } catch {}
   try { fs.writeFileSync(f, JSON.stringify({ token: token || old.token || '', tpa: C.tpa, ctp: C.ctp, home: C.home, homes: C.homes }, null, 2)); } catch {}
 }
-async function cmdModSetup(s, r) {
-  const mdir = path.join(sdir(s), 'mods'), dst = path.join(mdir, CMD_MOD);
-  const file = (s.type || 'fabric') === 'fabric' && cmdModFile(s.mc), src = file && cmdModSrc(file);
-  if (!src || (s.cmds && s.cmds.mod === false)) { for (const n of [dst, dst + '.disabled']) try { fs.unlinkSync(n); } catch {} r.cmdMod = false; return; }
-  try {
-    const sum = f => crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex');
-    if (!fs.existsSync(dst) || sum(dst) !== sum(src)) fs.copyFileSync(src, dst);
-    try { fs.unlinkSync(dst + '.disabled'); } catch {}
-    // necesita Fabric API
+// pone (o quita) el mod / plugin en la carpeta del servidor. Sin «r» solo copia el archivo (para que salga ya en la lista)
+async function cmdModSetup(s, r = null) {
+  const kind = cmdKind(s), dirs = { mod: path.join(sdir(s), 'mods'), plugin: path.join(sdir(s), 'plugins') };
+  const rm = k => { for (const n of [path.join(dirs[k], CMD_MOD), path.join(dirs[k], CMD_MOD + '.disabled')]) try { fs.unlinkSync(n); } catch {} };
+  const off = s.cmds && s.cmds.mod === false;
+  for (const k of ['mod', 'plugin']) if (k !== kind || off) rm(k);
+  if (r) r.cmdMod = false;
+  if (!kind || off) return false;
+  const dir = dirs[kind], dst = path.join(dir, CMD_MOD);
+  if (fs.existsSync(dst + '.disabled')) return false;   // lo has desactivado tú en la lista de mods/plugins
+  const src = await cmdModSrc(kind === 'plugin' ? 'compass-plugin.jar' : cmdModFile(s.mc));
+  if (!src) { log('No tengo el ' + kind + ' de comandos de Compass'); return false; }
+  fs.mkdirSync(dir, { recursive: true });
+  const sum = f => crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex');
+  if (!fs.existsSync(dst) || sum(dst) !== sum(src)) fs.copyFileSync(src, dst);
+  if (!r) return true;
+  if (kind === 'mod') {   // el mod necesita Fabric API
     let fapi = false;
-    for (const i of await listLocal(mdir)) { const m = metaOf(path.join(mdir, i.file), i.sha1); if (m && m.id === 'fabric-api' && i.enabled) fapi = true; }
-    if (!fapi) { srvOut('[Compass] Instalando Fabric API para los comandos con /…\n'); await mrInstall('fabric-api', tgt({ kind: 'server', id: s.id })); }
-    r.cmdToken = crypto.randomBytes(8).toString('hex'); r.cmdMod = true;
-    cmdCfgWrite(s, r.cmdToken);
-  } catch (e) { log('Mod de comandos: ' + e.message); for (const n of [dst]) try { fs.unlinkSync(n); } catch {} r.cmdMod = false; }
+    for (const i of await listLocal(dir)) { const m = metaOf(path.join(dir, i.file), i.sha1); if (m && m.id === 'fabric-api' && i.enabled) fapi = true; }
+    if (!fapi) { srvOut('[Compass] Instalando Fabric API para los comandos con /…\n'); try { await mrInstall('fabric-api', tgt({ kind: 'server', id: s.id })); } catch (e) { log('Fabric API: ' + e.message); } }
+  }
+  r.cmdToken = crypto.randomBytes(8).toString('hex'); r.cmdMod = true;
+  cmdCfgWrite(s, r.cmdToken);
+  return true;
+}
+// En los perfiles de servidor (amigos y «Entrar yo»), el mismo mod hace que «Conectar al servidor» entre directo y quita «Un jugador»
+const clientModOk = p => (p.kind === 'friend' || !!p.own) && !!cmdModFile(p.mc) && PREF('menuServer');
+async function clientModSetup(p, t) {
+  const dst = path.join(t.mods, CMD_MOD), cfgF = path.join(pdir(p), 'compass-menu.json');
+  if (!clientModOk(p)) { for (const f of [dst, cfgF]) try { fs.unlinkSync(f); } catch {} return false; }
+  if (fs.existsSync(dst + '.disabled')) return false;
+  const src = await cmdModSrc(cmdModFile(p.mc)); if (!src) return false;
+  const sum = f => crypto.createHash('sha1').update(fs.readFileSync(f)).digest('hex');
+  if (!fs.existsSync(dst) || sum(dst) !== sum(src)) fs.copyFileSync(src, dst);
+  let fapi = false;
+  for (const i of await listLocal(t.mods)) { const m = metaOf(path.join(t.mods, i.file), i.sha1); if (m && m.id === 'fabric-api' && i.enabled) fapi = true; }
+  if (!fapi) { try { await mrInstall('fabric-api', t); } catch (e) { log('Fabric API: ' + e.message); } }
+  fs.writeFileSync(cfgF, JSON.stringify({ server: p.server, name: p.name, label: T('Conectar al servidor'), hideSingleplayer: PREF('hideSingleplayer') }, null, 2));
+  return true;
 }
 const homeList = s => { try { return JSON.parse(fs.readFileSync(path.join(sdir(s), 'compass-home-perm.json'), 'utf8')).filter(x => x && x.name); } catch { return []; } };
 const homeHas = (s, n) => homeList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
@@ -1761,7 +1799,7 @@ async function srvSpawn(s, r) {
   if (!alive()) return;
   setProps(s, { 'server-port': port, 'server-ip': bind });
   if (s.type !== 'paper') { const bad = await dropBrokenJars(mdir); if (bad.length) { srvOut(`[Compass] Mods dañados quitados: ${bad.join(', ')}. Vuelvo a bajar lo que haga falta…\n`); try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} } }
-  try { await cmdModSetup(srv(s.id) || s, r); } catch (e) { log('Mod de comandos: ' + e.message); }
+  try { await cmdModSetup(srv(s.id) || s, r); } catch (e) { r.cmdMod = false; log('Mod de comandos: ' + e.message); }
   if (!alive()) return;
   if (s.type !== 'paper') for (const i of await listLocal(mdir)) if (i.enabled) {     // los mods solo de cliente no van en un servidor
     const m = metaOf(path.join(mdir, i.file), i.sha1);
@@ -2024,6 +2062,7 @@ async function syncOwn(p) {
   if (s.type !== 'paper' && fs.existsSync(sm)) for (const i of await listLocal(sm)) {
     const src = path.join(sm, i.file), m = metaOf(src, i.sha1), name = i.file.replace(/\.disabled$/, '');
     if (m && m.env === 'server') continue;
+    if ((m && m.id === 'compass-comandos') || i.file.startsWith(CMD_MOD)) continue;
     if (!i.enabled && !(m && m.env === 'client')) continue;
     if (m && mine.has(m.id)) continue;
     const dest = path.join(dir, name); want.add(name);
@@ -2169,7 +2208,7 @@ const EXTRAS = {
   zoom: { pref: 'zoomKey', field: 'zoomFiles', label: 'Zoom con la C', ids: ['zoomify', 'ok_zoomer', 'okzoomer', 'logical_zoom', 'wi_zoom'], slugs: ['zoomify', 'ok-zoomer'] },
   look: { pref: 'freeLook', field: 'lookFiles', label: 'Vista libre con el Alt', ids: ['swivel', 'shouldercheck', 'altcamera', 'freelook', 'freelookplusplus', 'simplelook', 'perspectivemod'], slugs: ['swivel', 'shouldercheck', 'altcamera', 'DSA6X7rF'] },
   // en los perfiles de un servidor (de amigo o tuyo) se quita el botón «Un jugador»: solo se juega en el servidor
-  nosp: { key: 'nosp', pref: 'hideSingleplayer', field: 'nospFiles', label: 'Sin «Un jugador»', ids: ['remove-singleplayer-button', 'removesingleplayerbutton', 'remove_singleplayer_button'], slugs: ['remove-singleplayer-button'], only: p => p.kind === 'friend' },
+  nosp: { key: 'nosp', pref: 'hideSingleplayer', field: 'nospFiles', label: 'Sin «Un jugador»', ids: ['remove-singleplayer-button', 'removesingleplayerbutton', 'remove_singleplayer_button'], slugs: ['remove-singleplayer-button'], only: p => p.kind === 'friend' && !clientModOk(p) },
 };
 async function extraSetup(p, t, X) {
   const files = p[X.field] || [];
@@ -2579,7 +2618,7 @@ const H = {
   serverSet: async (id, patch) => {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
     for (const k of ['name', 'mc', 'ram', 'mode', 'autoRestart', 'shareWorld', 'welcome', 'desc', 'color', 'type']) if (k in patch) s[k] = patch[k];
-    if (patch.cmds && typeof patch.cmds === 'object') { s.cmds = cmdsClean({ ...cmdsOf(s), ...patch.cmds }); try { cmdCfgWrite(s); } catch {} }
+    if (patch.cmds && typeof patch.cmds === 'object') { s.cmds = cmdsClean({ ...cmdsOf(s), ...patch.cmds }); try { cmdCfgWrite(s); } catch {} cmdModSetup(s).catch(() => {}); }
     if (!['paper', 'hybrid'].includes(s.type)) s.type = 'fabric';
     s.welcome = String(s.welcome || '').replace(/[\r\n]+/g, ' ').slice(0, 200); s.desc = String(s.desc || '').slice(0, 300);
     if (s.color && !/^#[0-9a-f]{6}$/i.test(s.color)) delete s.color;
@@ -2668,7 +2707,7 @@ const H = {
 
   // ----- mods (sirven para perfiles y servidores) -----
   modCount: async t => { try { return (await listLocal(tgt(t).mods)).filter(i => i.enabled).length; } catch { return 0; } },
-  scan: async t => scanMods(tgt(t).mods),
+  scan: async t => { const x = tgt(t); if (x.kind === 'server') { try { const sv = srv(x.id); if (sv) await cmdModSetup(sv); } catch {} } return scanMods(x.mods); },
   checkCompat: async t => (await issuesOf(tgt(t))),
   fixMods: async t => autoFix(tgt(t)),
   toggleMod: async (t, file) => { const f = path.basename(file), p = path.join(tgt(t).mods, f); fs.renameSync(p, f.endsWith('.disabled') ? p.slice(0, -9) : p + '.disabled'); },
@@ -2758,6 +2797,7 @@ const H = {
       }
       t = tgt({ kind: 'profile', id: pid });   // la versión puede haber cambiado al sincronizar
       const vi = verInfo(p.mc), hasFabric = !vi || vi.fabric || vi.legacy;
+      if (hasFabric) { try { await clientModSetup(p, t); } catch (e) { log('Menú de servidor: ' + e.message); } }
       if (hasFabric) for (const X of Object.values(EXTRAS)) { try { await extraSetup(p, t, X); } catch (e) { log(X.label + ': ' + e.message); } }
       // la comprobación va DESPUÉS de sincronizar y de poner los extras: si no, se comprobaban mods que luego cambiaban
       try { await resolveDeps(t, true); } catch {}
