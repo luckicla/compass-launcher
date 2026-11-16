@@ -678,7 +678,7 @@ async function fabricVersions() {
   try {
     const l = await J('https://meta.fabricmc.net/v2/versions/game');
     gameVersions = l.filter(v => v.stable && /^\d+\.\d+(\.\d+)?$/.test(v.version))
-      .map(v => v.version).filter(v => { const [a, b] = v.split('.').map(Number); return a >= 26 || (a === 1 && b >= 17); }).sort(verCmp);
+      .map(v => v.version).filter(v => { const [a, b] = v.split('.').map(Number); return a >= 26 || (a === 1 && b >= 14); }).sort(verCmp);
     if (gameVersions.length) { cfg().knownVersions = gameVersions; save(); }   // para poder elegir versión sin conexión
   } catch {
     const k = cfg().knownVersions;
@@ -686,6 +686,24 @@ async function fabricVersions() {
   }
   return gameVersions;
 }
+// Todas las versiones de Minecraft (las de Mojang): normales, snapshots, betas y alphas, y cuáles admiten mods (Fabric)
+let allVers = null;
+async function mcVersions() {
+  if (allVers && Date.now() - allVers.t < 6 * 3600e3) return allVers.list;
+  try {
+    const [man, fab] = await Promise.all([J('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json'), J('https://meta.fabricmc.net/v2/versions/game').catch(() => [])]);
+    const fset = new Set((fab || []).map(v => v.version));
+    const list = (man.versions || []).map(v => ({ id: v.id, type: v.type, fabric: fset.has(v.id) }));
+    if (list.length) { allVers = { t: Date.now(), list }; cfg().knownAll = list; save(); }
+    return list;
+  } catch {
+    if (cfg().knownAll && cfg().knownAll.length) return cfg().knownAll;
+    return (await fabricVersions()).map(id => ({ id, type: 'release', fabric: true }));
+  }
+}
+const mcType = mc => ((allVers && allVers.list) || cfg().knownAll || []).find(v => v.id === mc)?.type || 'release';
+// versiones «modernas» (1.13 en adelante y las snapshots nuevas): para las muy antiguas no se tocan opciones ni el menú
+const mcModern = mc => { const m = /^(\d+)\.(\d+)/.exec(String(mc)); if (m) return +m[1] > 1 || +m[2] >= 13; return /^\d{2}w\d{2}/.test(mc) || /-(pre|rc)/.test(mc); };
 async function fabricLoader(mc) {
   const l = await J(`https://meta.fabricmc.net/v2/versions/loader/${mc}`);
   if (!l.length) throw new Error('Fabric no soporta la versión ' + mc);
@@ -726,10 +744,26 @@ async function javaInfo(mc) {
   const info = { major: (j && +j.majorVersion) || javaMajor(mc), component: (j && j.component) || null };
   javaInfoCache.set(mc, info); return info;
 }
+// Descargar de una vez todas las versiones de Java que usa Minecraft (8, 17, 21 y 25): desde el instalador o Ajustes
+const JAVA_ALL = [[25, 'java-runtime-epsilon'], [21, 'java-runtime-delta'], [17, 'java-runtime-gamma'], [8, 'jre-legacy']];
+let javaAllBusy = null;
+function javaAll() {
+  if (javaAllBusy) return javaAllBusy;
+  javaAllBusy = (async () => {
+    const done = [], failed = [];
+    for (const [major, comp] of JAVA_ALL) {
+      try { if (!javaBusy.has(major)) javaBusy.set(major, installJava(major, comp).finally(() => javaBusy.delete(major))); await javaBusy.get(major); done.push(major); }
+      catch (e) { failed.push(major); log(`Java ${major}: ${e.message}`); }
+    }
+    toast(failed.length ? `Java listo: ${done.join(', ') || 'ninguno'}. Sin conseguir: ${failed.join(', ')} (se intentará al jugar).` : 'Todas las versiones de Java están listas', failed.length ? 'warn' : 'ok');
+    return { done, failed };
+  })().finally(() => { javaAllBusy = null; });
+  return javaAllBusy;
+}
 const javaMajorOf = mc => (javaInfoCache.get(mc) || {}).major || javaMajor(mc);
 // Un JRE solo vale si está entero: java.exe + lib/jvm.cfg + lib/modules. Si una descarga o una
 // extracción se cortó (antivirus, cerrar la app a medias…) se borra y se vuelve a instalar.
-const jreOk = d => ['bin/java.exe', 'lib/jvm.cfg', 'lib/modules'].every(f => fs.existsSync(path.join(d, f)));
+const jreOk = d => fs.existsSync(path.join(d, 'bin', 'java.exe')) && ['lib/modules', 'lib/rt.jar'].some(f => fs.existsSync(path.join(d, f)));   // Java 9+ (modules) o Java 8 (rt.jar)
 const javaBusy = new Map();
 async function ensureJava(mc) {
   const { major, component } = await javaInfo(mc);
@@ -2031,7 +2065,7 @@ const H = {
     if (ch) save();
     return { profiles: c.profiles, servers: c.servers.map(x => ({ ...x, offline: readProps(x)['online-mode'] === 'false', icon: fs.existsSync(path.join(sdir(x), 'server-icon.png')) })), active: c.active, ram: c.ram, hasKey: !!c.cfKey, game: gameState, host: hostView(), minOnPlay: c.minOnPlay !== false, showHost: c.showHost != null ? c.showHost : c.servers.length > 0, onboarded: !!c.onboarded, prefs: { shareOptions: PREF('shareOptions'), zoomKey: PREF('zoomKey'), freeLook: PREF('freeLook'), menuLogo: PREF('menuLogo'), menuServer: PREF('menuServer') }, look: c.look || {}, glassOk: glassOk() };
   },
-  sysInfo: async () => ({ totalGb: Math.floor(os.totalmem() / 2 ** 30), versions: await fabricVersions(), app: app.getVersion() }),
+  sysInfo: async () => ({ totalGb: Math.floor(os.totalmem() / 2 ** 30), versions: await fabricVersions(), all: await mcVersions(), snapshots: !!cfg().showSnapshots, app: app.getVersion() }),
   // ----- actualizaciones -----
   updState: async () => ({ ...upd, auto: cfg().autoUpdate !== false }),
   updCheck: async () => { await updCheck(); return { ...upd, auto: cfg().autoUpdate !== false }; },
@@ -2071,6 +2105,7 @@ const H = {
     else if (w === 'apk') await shell.openExternal(APK_URL);
   },
   remotePrepare: async () => prepareWake(),
+  javaAll: async () => javaAll(),
   // botones propios de la ventana (minimizar, maximizar, cerrar), como en Discord
   win: async a => {
     if (!win || win.isDestroyed()) return null;
@@ -2084,7 +2119,7 @@ const H = {
   setRam: async r => { if (/^\d+G$/.test(r)) { cfg().ram = r; save(); } },
   setKey: async k => { cfg().cfKey = (k || '').trim(); save(); },
   setPref: async (k, v) => {
-    if (['minOnPlay', 'showHost', 'onboarded', 'shareOptions', 'zoomKey', 'freeLook', 'menuLogo', 'menuServer'].includes(k)) { cfg()[k] = !!v; save(); }
+    if (['minOnPlay', 'showHost', 'onboarded', 'shareOptions', 'zoomKey', 'freeLook', 'menuLogo', 'menuServer', 'showSnapshots'].includes(k)) { cfg()[k] = !!v; save(); }
     if (k === 'look' && v && typeof v === 'object') { cfg().look = cleanLook(v); save(); applyLook(); }
   },
   logError: async m => { log('[interfaz] ' + String(m).slice(0, 4000)); },
@@ -2433,13 +2468,18 @@ const H = {
         if (!synced && p.compass === false) { try { const v = await versionFromPing(await slpPing(p.server, 3000)); if (v && v !== p.mc) { p.mc = v; save(); log('El servidor ahora es de Minecraft ' + v); } } catch {} }
       }
       t = tgt({ kind: 'profile', id: pid });   // la versión puede haber cambiado al sincronizar
-      for (const X of Object.values(EXTRAS)) { try { await extraSetup(p, t, X); } catch (e) { log(X.label + ': ' + e.message); } }
+      const hasFabric = ((allVers && allVers.list) || cfg().knownAll || []).find(v => v.id === p.mc)?.fabric !== false;
+      if (hasFabric) for (const X of Object.values(EXTRAS)) { try { await extraSetup(p, t, X); } catch (e) { log(X.label + ': ' + e.message); } }
       // la comprobación va DESPUÉS de sincronizar y de poner los extras: si no, se comprobaban mods que luego cambiaban
       try { await resolveDeps(t, true); } catch {}
-      if (!o.force) { const issues = await issuesOf(t); if (issues.length) { prog('', 0); setGame('idle'); return { blocked: true, issues }; } }
-      try { optsIn(p); } catch (e) { log('Ajustes compartidos: ' + e.message); }
-      try { menuSetup(p); } catch (e) { log('Menú de Compass: ' + e.message); }
-      const javaPath = await ensureJava(p.mc), versionId = await ensureFabric(p.mc);
+      if (!o.force && hasFabric) { const issues = await issuesOf(t); if (issues.length) { prog('', 0); setGame('idle'); return { blocked: true, issues }; } }
+      if (mcModern(p.mc)) {
+        try { optsIn(p); } catch (e) { log('Ajustes compartidos: ' + e.message); }
+        try { menuSetup(p); } catch (e) { log('Menú de Compass: ' + e.message); }
+      }
+      const javaPath = await ensureJava(p.mc);
+      let versionId = null;   // las versiones sin Fabric (muy antiguas o snapshots raras) se juegan sin mods
+      try { versionId = await ensureFabric(p.mc); } catch (e) { if (!/no soporta/i.test(e.message)) throw e; log(`Minecraft ${p.mc} no tiene Fabric: se juega sin mods`); toast(`Minecraft ${p.mc} no admite mods (Fabric): se juega normal, sin mods.`, 'info'); }
       const addr = o.server || (p.kind === 'friend' && (o.join || p.autoJoin !== false) ? p.server : null);
       if (addr) log('Entrando directo a ' + addr);
       const l = new Client();
@@ -2469,7 +2509,7 @@ const H = {
         authorization: mcAuth.mclc(), root: ROOT(), javaPath,
         overrides: { gameDirectory: pdir(p) },
         ...(addr ? { quickPlay: quickPlay(p.mc, addr) } : {}),
-        version: { number: p.mc, type: 'release', custom: versionId },
+        version: { number: p.mc, type: mcType(p.mc), ...(versionId ? { custom: versionId } : {}) },
         memory: { max: p.ram || '4G', min: Math.min(2, gbOf(p.ram)) + 'G' },
       });
       if (!proc) throw new Error('No se pudo iniciar Minecraft. Mira el registro en Ajustes.');
@@ -2911,6 +2951,9 @@ else {
     });
     win.loadFile('index.html');
     setupUpdates();
+    // el instalador deja esta marca si elegiste «Descargar ya todas las versiones de Java»
+    try { const fl = path.join(U(), 'preparar-java.flag'); if (fs.existsSync(fl)) { fs.unlinkSync(fl); setTimeout(() => { toast('Descargando todas las versiones de Java en segundo plano…', 'info'); javaAll().catch(() => {}); }, 5000); } } catch {}
+    try { if (!('openAtLogin' in cfg())) { cfg().openAtLogin = app.getLoginItemSettings({ args: ['--compass-hidden'] }).openAtLogin; save(); } } catch {}
   });
   app.on('window-all-closed', () => { quitAll(); });
 }

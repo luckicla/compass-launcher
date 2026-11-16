@@ -1,6 +1,6 @@
 {
   "name": "compass-launcher",
-  "version": "5.1.0",
+  "version": "5.2.0",
   "description": "Compass Launcher: juega con tus amigos y monta tus propios servidores de Minecraft con mods",
   "main": "main.js",
   "author": "Compass",
@@ -48,17 +48,28 @@
       "legalTrademarks": "Compass Launcher"
     },
     "nsis": {
-      "oneClick": true,
+      "oneClick": false,
       "perMachine": false,
       "runAfterFinish": true,
-      "createDesktopShortcut": "always",
+      "createDesktopShortcut": false,
       "createStartMenuShortcut": true,
       "deleteAppDataOnUninstall": false,
       "shortcutName": "Compass Launcher",
       "uninstallDisplayName": "Compass Launcher",
       "installerIcon": "build/icon.ico",
       "uninstallerIcon": "build/icon.ico",
-      "artifactName": "Compass-Launcher-Instalador-${version}.${ext}"
+      "artifactName": "Compass-Launcher-Instalador-${version}.${ext}",
+      "allowToChangeInstallationDirectory": true,
+      "allowElevation": true,
+      "include": "build/installer.nsh",
+      "multiLanguageInstaller": true,
+      "installerLanguages": [
+        "es_ES",
+        "en_US",
+        "ca_ES"
+      ],
+      "language": "3082",
+      "displayLanguageSelector": false
     },
     "portable": {
       "artifactName": "Compass-Launcher-Portable-${version}.${ext}"

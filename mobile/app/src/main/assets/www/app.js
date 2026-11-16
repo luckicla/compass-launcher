@@ -469,8 +469,8 @@ function renderSettings() {
       el('button', { class: 'btn ghost full', onclick: () => N.open(`https://github.com/${REPO}/releases`) }, 'Ver todas las versiones')),
     el('div', { class: 'card stack' }, el('h3', {}, 'Acerca de'),
       el('p', { class: 'mut', html: '¡Buenas! Soy <b>luckicla</b> y hago Compass Launcher yo solo, en mis ratos libres, por puro gusto y porque me lo paso bien programando.' }),
-      el('p', { class: 'mut' }, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos… y bueno, se me ha ido un poco de las manos.'),
-      el('p', { class: 'mut' }, 'Es gratis, sin anuncios y no recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
+      el('p', { class: 'mut' }, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos. Me pareció que molaba y quiero que otra gente pueda usarlo gratis.'),
+      el('p', { class: 'mut' }, 'No tiene anuncios ni recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
       el('button', { class: 'btn full', onclick: () => N.open('https://luckicla.github.io/compass-launcher/') }, 'Web de Compass'),
       el('p', { class: 'small' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).')));
   $('#app').replaceChildren(topBar('Ajustes', null, el('button', { class: 'ib', onclick: goBack }, I('back'))), main);

@@ -88,7 +88,22 @@ let CODE = '';
 let MODE = store.get('mode') === 'host' ? 'host' : 'play', PAGE = 'home', selP = null, selS = store.get('selS'), TAB = 'resumen', PREV = 'home';
 const reload = async () => { Object.assign(ST, await A.call('state')); if (!P(selP)) selP = ST.active; if (!SV(selS)) selS = ST.servers[0] && ST.servers[0].id; };
 const vcmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (y[i] || 0) - (x[i] || 0); return 0; };
-const mcSelect = (cur, dis) => { const s = el('select', { class: 'in', disabled: !!dis }); [...new Set([cur, ...SYS.versions])].filter(Boolean).sort(vcmp).forEach(v => s.append(el('option', { value: v }, 'Minecraft ' + v))); s.value = cur; return s; };
+// servidores: solo versiones con Fabric/Paper
+const srvMcSelect = (cur, dis) => { const s = el('select', { class: 'in', disabled: !!dis }); [...new Set([cur, ...SYS.versions])].filter(Boolean).sort(vcmp).forEach(v => s.append(el('option', { value: v }, 'Minecraft ' + v))); s.value = cur; return s; };
+// selector de versión: todas las de Mojang. Las snapshots, betas y alphas solo si las activas en Ajustes › Al jugar
+const mcSelect = (cur, dis) => {
+  const s = el('select', { class: 'in', disabled: !!dis });
+  const all = SYS.all && SYS.all.length ? SYS.all : SYS.versions.map(id => ({ id, type: 'release', fabric: true }));
+  const show = v => v.type === 'release' || SYS.snapshots || v.id === cur;
+  const lbl = v => 'Minecraft ' + v.id + (v.fabric ? '' : ' (sin mods)');
+  const groups = [['release', 'Versiones'], ['snapshot', 'Snapshots (de prueba)'], ['old_beta', 'Beta antiguas'], ['old_alpha', 'Alpha antiguas']];
+  for (const [type, name] of groups) {
+    const vs = all.filter(v => v.type === type && show(v)); if (!vs.length) continue;
+    s.append(el('optgroup', { label: name }, ...vs.map(v => el('option', { value: v.id }, lbl(v)))));
+  }
+  if (cur && !all.some(v => v.id === cur)) s.prepend(el('option', { value: cur }, 'Minecraft ' + cur));
+  s.value = cur; return s;
+};
 const ramMax = () => Math.max(2, Math.min(32, SYS.totalGb - 2));
 function ramField(cur, onSave, label = 'Memoria RAM') {
   const r = el('input', { type: 'range', min: 1, max: ramMax(), step: 1 }), v = el('span', {});
@@ -578,10 +593,36 @@ function renderProfiles() {
           el('button', { class: 'btn sm dng', disabled: ST.profiles.length < 2, onclick: async () => {
             const c = await modal('¿Quitar este perfil?', el('p', { style: 'color:var(--mut)' }, `«${p.name}»: puedes quitarlo de la lista y conservar sus archivos, o borrarlo todo (mods, mundos y capturas).`), [{ t: 'Cancelar', v: null }, { t: 'Solo quitar', v: 'keep' }, { t: 'Borrar todo', v: 'all', cls: 'dng' }]);
             if (c) { try { await A.call('profileDel', p.id, c === 'all'); await reload(); selP = ST.active; renderProfiles(); renderFriends(); } catch (e) { toast(clean(e), 'error'); } } } }, I('trash', 14), 'Quitar'))),
-      el('div', { class: 'panel' }, el('h3', {}, 'Mods de este perfil'), makeMods(target('profile', p.id)).node));
+      profModsPanel(p));
   }
   R.replaceChildren(el('div', { class: 'pagehead' }, el('div', {}, el('h1', {}, 'Perfiles'), el('p', {}, 'Cada perfil es una instalación aparte: sus mods, sus mundos, sus opciones. Cambiar de perfil nunca toca los otros.'))),
     el('div', { style: 'display:grid;grid-template-columns:260px minmax(0,1fr);gap:16px;align-items:start' }, list, detail));
+}
+
+// mods de un perfil: los instalados y, al lado, la tienda filtrada a la versión de ese perfil
+let PMODSUB = 'inst';
+function profModsPanel(p) {
+  const box = el('div', { class: 'panel' });
+  const paint = () => {
+    const managed = p.kind === 'friend' && p.compass !== false;
+    const sub = el('div', { class: 'seg' }, ...[['inst', 'Instalados', 'cube'], ['store', 'Buscar mods para ' + p.mc, 'bag']].map(([k, t, i]) => el('button', { class: PMODSUB === k ? 'on' : '', onclick: () => { PMODSUB = k; paint(); } }, I(i, 14), t)));
+    box.replaceChildren(...[el('div', { class: 'row', style: 'margin-bottom:12px;align-items:center' }, el('h3', { style: 'margin:0' }, 'Mods de este perfil'), el('div', { class: 'sp' }), sub),
+      managed ? el('p', { class: 'hint', style: 'margin:-4px 0 10px' }, 'Los mods del servidor de tu amigo se sincronizan solos; los que añadas aquí son solo tuyos (minimapas, shaders…).') : null,
+      PMODSUB === 'inst' ? makeMods(target('profile', p.id), { onStore: () => { PMODSUB = 'store'; paint(); } }).node
+        : makeStore(() => target('profile', p.id), { onInstalled: () => {} }).node].filter(Boolean));
+  };
+  paint(); return box;
+}
+// al instalar desde la Tienda general: ¿en qué perfil?
+async function pickProfileFor(what, cur) {
+  const L = ST.profiles;
+  if (L.length < 2) return cur;
+  let pick = cur && cur.id;
+  const items = L.map(p => el('button', { class: 'pprow' + (p.id === pick ? ' on' : ''), onclick: e => { pick = p.id; $$('.pprow', box).forEach(b => b.classList.toggle('on', b === e.currentTarget)); } },
+    profGlyph(p), el('span', { class: 't' }, el('b', {}, p.name), el('small', {}, 'Minecraft ' + p.mc + (p.id === ST.active ? ' · activo' : '') + (p.kind === 'friend' ? ' · servidor' : ''))), el('span', { class: 'ck' }, I('check', 16))));
+  const box = el('div', {}, el('p', { style: 'color:var(--mut);margin-bottom:12px' }, `Elige dónde instalar ${what}. Se pone la versión que corresponde a la de Minecraft de cada perfil.`), el('div', { class: 'pplist' }, ...items));
+  const ok = await modal('¿En qué perfil?', box, [{ t: 'Cancelar', v: false }, { t: 'Instalar aquí', v: true, cls: 'pri' }]);
+  return ok && pick ? target('profile', pick) : null;
 }
 
 // =====================================================================
@@ -677,7 +718,9 @@ function makeStore(getT, opts = {}) {
   function card(m) {
     const b = el('button', { class: 'btn sm' + (m.installed ? '' : ' pri'), disabled: !!m.installed }, m.installed ? I('check', 14) : I('download', 14), m.installed ? 'Instalado' : 'Instalar');
     b.onclick = () => act(b, async () => {
-      const r = await A.call('storeInstall', { t: getT(), id: m.id, source: S.src });
+      const t = opts.ask ? await pickProfileFor(m.title, getT()) : getT();
+      if (!t) return;
+      const r = await A.call('storeInstall', { t, id: m.id, source: S.src });
       b.className = 'btn sm'; b.replaceChildren(I('check', 14), 'Instalado'); setTimeout(() => b.disabled = true);
       if (r.issues && r.issues.length) toast(m.title + ' instalado, pero hay mods que no encajan. Revisa la lista de instalados.', 'warn', 8000); else toast(m.title + ' instalado', 'ok', 3000);
       if (opts.onInstalled) opts.onInstalled();
@@ -749,6 +792,12 @@ function renderSettings() {
       el('div', { class: 'panel' }, el('h3', {}, 'Ventana'),
         el('div', { class: 'toggle' }, sw(ST.minOnPlay !== false, async v => { await A.call('setPref', 'minOnPlay', v); ST.minOnPlay = v; }),
           el('div', { class: 't' }, el('b', {}, 'Minimizar el launcher mientras juegas'), el('small', {}, 'Al cerrar Minecraft vuelve a aparecer solo, en Inicio.')))),
+      el('div', { class: 'panel' }, el('h3', {}, 'Java'),
+        el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Compass descarga solo el Java que pide cada versión la primera vez que juegas. Si prefieres tenerlos todos ya (8, 17, 21 y 25), descárgalos ahora.'),
+        el('div', { class: 'row' }, el('button', { class: 'btn sm', onclick: e => act(e.currentTarget, async () => { toast('Descargando Java… puedes seguir usando Compass', 'info', 4000); await A.call('javaAll'); }) }, I('download', 14), 'Descargar todas las versiones de Java'))),
+      el('div', { class: 'panel' }, el('h3', {}, 'Versiones de Minecraft'),
+        el('div', { class: 'toggle' }, sw(!!SYS.snapshots, async v => { await A.call('setPref', 'showSnapshots', v); SYS.snapshots = v; toast(v ? 'Ya puedes elegir snapshots y versiones antiguas al crear o editar un perfil' : 'Solo se muestran las versiones normales', 'ok', 3500); }),
+          el('div', { class: 't' }, el('b', {}, 'Mostrar snapshots y versiones antiguas'), el('small', {}, 'Snapshots (versiones de prueba de Mojang), betas y alphas. Pueden fallar y muchas no admiten mods. Las versiones normales salen siempre, todas.')))),
       el('div', { class: 'panel' }, el('h3', {}, 'Dentro del juego'),
         ...[['shareOptions', 'Mismos ajustes en todos los perfiles y versiones', 'Controles, sonido, FOV, gráficos, sensibilidad… Lo que cambies en uno se guarda para todos, como en Lunar. Los packs de texturas siguen siendo de cada perfil.'],
           ['zoomKey', 'Zoom con la C', 'Se instala solo un mod de zoom (Zoomify u Ok Zoomer) en tus perfiles. Mantén pulsada la C para acercar.'],
@@ -790,8 +839,8 @@ function renderSettings() {
           el('small', { style: 'display:block;margin-top:4px' }, 'Atajos: Ctrl+1 Jugar' + (hostOn() ? ', Ctrl+2 Servidores' : '') + ', Ctrl+, Ajustes, F12 herramientas de desarrollo.'))),
       el('div', { class: 'panel aboutme' }, el('h3', {}, 'Quién hace esto'),
         el('p', { html: '¡Buenas! Soy <b>luckicla</b> y hago Compass Launcher yo solo, en mis ratos libres, por puro gusto y porque me lo paso bien programando.' }),
-        el('p', {}, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos… y bueno, se me ha ido un poco de las manos.'),
-        el('p', {}, 'Es gratis, sin anuncios y no recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
+        el('p', {}, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos. Me pareció que molaba y quiero que otra gente pueda usarlo gratis.'),
+        el('p', {}, 'No tiene anuncios ni recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
         el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: () => A.call('openUrl', 'https://luckicla.github.io/compass-launcher/') }, I('globe', 14), 'Web de Compass'),
           el('button', { class: 'btn sm ghost', onclick: () => A.call('openUrl', 'https://github.com/luckicla/compass-launcher') }, I('external', 14), 'GitHub')),
         el('small', { style: 'display:block;margin-top:10px;color:var(--dim)' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'))],
@@ -838,7 +887,7 @@ function typePicker(cur, onPick, big) {
   return w;
 }
 async function newServerDialog() {
-  const n = el('input', { class: 'in', placeholder: 'Por ejemplo: Supervivencia con los compas', maxlength: 40 }), m = mcSelect((P(ST.active) || {}).mc || SYS.versions[0]);
+  const n = el('input', { class: 'in', placeholder: 'Por ejemplo: Supervivencia con los compas', maxlength: 40 }), m = srvMcSelect((P(ST.active) || {}).mc || SYS.versions[0]);
   let gm = 'survival', df = 'normal', acc = 'premium', typ = 'fabric';
   const pick = (opts, cur, set) => { const w = el('div', { class: 'seg' }); opts.forEach(([v, t]) => w.append(el('button', { class: v === cur ? 'on' : '', onclick: e => { set(v); $$('button', w).forEach(b => b.classList.toggle('on', b === e.currentTarget)); } }, t))); return w; };
   const typePick = typePicker(typ, v => { typ = v; fitVersions(m, v); }, true);
@@ -1327,7 +1376,7 @@ async function tabAjustes(s, body) {
   const PV = {}; const bind = (k, type = 'text', extra = {}) => { const i = el('input', { class: 'in', type, value: pr[k], ...extra }); PV[k] = () => i.value; return i; };
   const sel = (k, opts) => { const i = el('select', { class: 'in' }, ...opts.map(([v, t]) => el('option', { value: v }, t))); i.value = pr[k]; PV[k] = () => i.value; return i; };
   const bool = (k, title, hint, invert) => { const c = el('input', { type: 'checkbox', checked: pr[k] === 'true' }); PV[k] = () => String(c.checked); return el('div', { class: 'toggle' }, el('span', { class: 'sw' }, c), el('div', { class: 't' }, el('b', {}, title), hint ? el('small', {}, hint) : null)); };
-  const name = el('input', { class: 'in', value: s.name, maxlength: 40 }), mc = mcSelect(s.mc);
+  const name = el('input', { class: 'in', value: s.name, maxlength: 40 }), mc = srvMcSelect(s.mc);
   let mode = s.mode || 'online', ram = s.ram, typ = s.type || 'fabric', color = s.color || '';
   const pres = presentationPanel(s, pr, PV, bind, bool, c => color = c);
   const typePick = typePicker(typ, v => { typ = v; fitVersions(mc, v, s.mc); });
@@ -1643,7 +1692,7 @@ function renderStore() {
   const sub = el('p', {}, tab[3] + (STORE_TAB === 'modpack' ? '' : ` Para Minecraft ${cur().mc}.`));
   const tabs = el('div', { class: 'storetabs' }, ...STORE_TABS.map(([k, t, i]) => el('button', { class: k === STORE_TAB ? 'on' : '', onclick: () => { STORE_TAB = k; renderStore(); } }, I(i, 16), t)));
   let content;
-  if (STORE_TAB === 'mod') { const st = makeStore(() => storeT, { head: [sel] }); sel.onchange = e => { const [k, id] = e.target.value.split(':'); storeT = target(k, id); renderStore(); }; content = st.node; }
+  if (STORE_TAB === 'mod') { const st = makeStore(() => storeT, { head: [sel], ask: true }); sel.onchange = e => { const [k, id] = e.target.value.split(':'); storeT = target(k, id); renderStore(); }; content = st.node; }
   else if (STORE_TAB === 'map') { content = mapStore(sel); }
   else { const st = kindStore(STORE_TAB, () => storeT, { head: STORE_TAB === 'modpack' ? [] : [sel] }); sel.onchange = e => { const [k, id] = e.target.value.split(':'); storeT = target(k, id); renderStore(); }; content = st.node; }
   R.replaceChildren(el('div', { class: 'pagehead' }, el('div', {}, el('h1', {}, 'Tienda'), sub)), tabs, content);

@@ -1,7 +1,8 @@
-## Novedades de la 5.1
+## Novedades de la 5.2
 
-- **App para Android** (Compass-Movil.apk): enciende tu PC con Wake-on-LAN y controla tus servidores desde cualquier sitio: encender, apagar, consola en directo, jugadores, ajustes, mods, copias y modo 24/7. Lo que cambias en el móvil se ve al momento en el PC y al revés. Usa el mismo tema y fondo animado que tu Compass.
-- **Ajustes › App del móvil**: QR para descargar la app, emparejar el móvil con otro QR y una guía para que el PC se encienda solo (preparar Windows con un clic, BIOS, inicio de sesión automático y router).
-- Con la app del móvil activada, Compass se abre solo al encender el PC y se queda junto al reloj.
-- La app del móvil también se actualiza sola (se descarga e instala sin salir de ella).
-- Nueva web: https://luckicla.github.io/compass-launcher
+- **Todas las versiones de Minecraft**, desde la 1.0. Las que no admiten mods se juegan normal, sin mods.
+- **Snapshots, betas y alphas**: actívalas en Ajustes › Al jugar (vienen desactivadas).
+- **Mods por perfil**: en cada perfil puedes buscar mods para su versión. Y en la Tienda general te pregunta en qué perfil instalarlos.
+- **Instalador nuevo**: eliges la carpeta (por defecto, la de siempre), icono en el escritorio, abrir al iniciar Windows y descargar ya todas las versiones de Java. En español, catalán o inglés según tu Windows.
+- **Descargar todos los Java** (8, 17, 21 y 25) desde Ajustes › Al jugar.
+- Arreglado: al actualizar o pulsar botones la interfaz ya no «se reinicia».
