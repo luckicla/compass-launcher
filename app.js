@@ -379,14 +379,23 @@ function scenePanel() {
     document.body.append(inp); inp.click(); setTimeout(() => inp.remove(), 60000);
   };
   const set = k => { if (k === 'propia' && !store.get('sceneImg')) return pickOwn(); store.set('scene', k); toast('Escena cambiada', 'ok', 1500); refreshSettings(); if (MODE === 'play' && PAGE === 'home') renderHome(); };
-  const card = (k, name, html, cls = '') => el('button', { class: 'scard' + (k === cur ? ' on' : ''), onclick: () => set(k) }, el('div', { class: 'scprev' + cls, html }), el('b', {}, name));
+  // cada tarjeta es una miniatura de Inicio: el paisaje (o la imagen) con un nombre de perfil de mentira encima
+  const prof = P(ST.active) || {}, esc2 = v => String(v || '').replace(/'/g, '');
+  const mock = () => `<div class="scn-mock"><i></i><b>${(prof.name || 'Survival').replace(/[<>&]/g, '')}</b><span></span></div>`;
+  const card = (k, name, html, kind = '') => el('button', { class: 'scn-card' + (k === cur ? ' on' : ''), title: name, onclick: () => set(k) },
+    el('div', { class: 'scn-prev ' + kind, html: html + (kind === 'up' ? '' : mock()) }, k === cur ? el('span', { class: 'scn-ok', html: ic('check', 14) }) : null),
+    el('span', { class: 'scn-name' }, name));
+  const own = store.get('sceneImg');
   return el('div', { class: 'panel' }, el('h3', {}, I('image', 16), ' Escena de Inicio'),
     el('p', { class: 'hint', style: 'margin:-6px 0 12px' }, 'Lo que sale detrás del nombre del perfil en Inicio. También se cambia con clic derecho en la escena.'),
-    el('div', { class: 'scgrid' }, ...Object.entries(SCENES).map(([k, S]) => card(k, S.name, landscape(k))),
-      card('tema', SCENE_EXTRA.tema, '', ' clear'),
-      card('perfil', SCENE_EXTRA.perfil, '<div class="scimg" style="background-image:url(\'assets/icon.png\')"></div>', ' photo'),
-      card('propia', SCENE_EXTRA.propia, store.get('sceneImg') ? `<div class="scimg" style="background-image:url('${store.get('sceneImg')}')"></div>` : ic('upload', 26), store.get('sceneImg') ? ' photo' : ' up')),
-    store.get('sceneImg') ? el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: pickOwn }, I('upload', 14), 'Cambiar mi imagen')) : null);
+    el('div', { class: 'scn-sub' }, 'Paisajes'),
+    el('div', { class: 'scn-grid' }, ...Object.entries(SCENES).map(([k, S]) => card(k, S.name, landscape(k)))),
+    el('div', { class: 'scn-sub' }, 'Otras'),
+    el('div', { class: 'scn-grid' },
+      card('tema', SCENE_EXTRA.tema, '', 'tema'),
+      card('perfil', SCENE_EXTRA.perfil, prof.icon ? `<div class="scimg" style="background-image:url('${esc2(prof.icon)}')"></div>` : `<div class="scn-logo" style="background-image:url('assets/icon.png')"></div>`, prof.icon ? 'photo' : 'logo'),
+      card('propia', SCENE_EXTRA.propia, own ? `<div class="scimg" style="background-image:url('${esc2(own)}')"></div>` : `<div class="scn-upl">${ic('upload', 22)}<small>Elegir imagen</small></div>`, own ? 'photo' : 'up')),
+    own ? el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: pickOwn }, I('upload', 14), 'Cambiar mi imagen')) : null);
 }
 function profilePicker(anchor) {
   const old = $('.picker'); if (old) { old.remove(); return; }

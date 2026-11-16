@@ -504,12 +504,31 @@ button.chip:hover{background:rgb(var(--fgrgb) / .13)}
 .scene.photo::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgb(10 6 16 / .8),rgb(10 6 16 / .1) 60%),linear-gradient(0deg,rgb(10 6 16 / .5),transparent 50%)}
 .scene .flake{animation:flake 6s linear infinite}
 @keyframes flake{to{transform:translateY(30px)}}
-.scgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:12px}
-.scard{display:flex;flex-direction:column;gap:6px;text-align:left;padding:6px;border-radius:var(--rad,4px);background:var(--s2);box-shadow:0 0 0 2px transparent}
-.scard.on{box-shadow:0 0 0 2px var(--acc)}
-.scard b{font-size:12.5px;padding:0 2px 2px}
-.scprev{position:relative;height:78px;overflow:hidden;border-radius:calc(var(--rad,4px) * .7);background:#2a1a38;display:grid;place-items:center;color:var(--mut)}
-.scprev svg.land{position:absolute;inset:0;width:100%;height:100%}
-.scprev.clear{background:repeating-conic-gradient(var(--s3) 0 25%,var(--s1) 0 50%) 0 0/16px 16px}
-.scprev.up{background:var(--s1);border:2px dashed var(--line2)}
-.scprev .scimg{position:absolute;inset:0;background-size:cover;background-position:center}
+
+/* Escena de Inicio (Ajustes › Apariencia) */
+.scn-sub{margin:14px 0 8px;font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--dim)}
+.scn-sub:first-of-type{margin-top:0}
+.scn-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(148px,1fr));gap:12px}
+.scn-card{all:unset;box-sizing:border-box;display:flex;flex-direction:column;gap:7px;cursor:pointer;min-width:0}
+.scn-card:focus-visible .scn-prev{outline:2px solid var(--acc);outline-offset:3px}
+.scn-prev{position:relative;aspect-ratio:12/5;overflow:hidden;border-radius:var(--rad,6px);background:#1b1226;isolation:isolate;
+  box-shadow:inset 0 0 0 1px rgb(255 255 255 / .06);transition:transform .15s ease,box-shadow .15s ease}
+.scn-card:hover .scn-prev{transform:translateY(-2px);box-shadow:inset 0 0 0 1px rgb(255 255 255 / .12),0 6px 18px rgb(0 0 0 / .35)}
+.scn-card.on .scn-prev{box-shadow:0 0 0 2px var(--acc),0 6px 18px rgb(0 0 0 / .35)}
+.scn-prev svg.land{position:absolute;inset:0;width:100%;height:100%;z-index:-1}
+.scn-prev .scimg{position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center}
+.scn-prev.photo::after{content:"";position:absolute;inset:0;z-index:-1;background:linear-gradient(90deg,rgb(10 6 16 / .75),rgb(10 6 16 / .1) 70%)}
+.scn-prev.tema{background:radial-gradient(120% 90% at 85% 10%,color-mix(in srgb,var(--acc) 35%,transparent),transparent 60%),linear-gradient(160deg,var(--s3),var(--s1))}
+.scn-prev.logo{background:radial-gradient(90% 120% at 80% 50%,#3a2552,#160f20)}
+.scn-logo{position:absolute;right:10%;top:50%;width:34%;aspect-ratio:1;transform:translateY(-50%);z-index:-1;background:center/contain no-repeat;image-rendering:pixelated;opacity:.9}
+.scn-prev.up{background:var(--s1);box-shadow:inset 0 0 0 2px var(--line2)}
+.scn-card:hover .scn-prev.up{box-shadow:inset 0 0 0 2px var(--acc)}
+.scn-upl{position:absolute;inset:0;display:grid;place-content:center;justify-items:center;gap:4px;color:var(--mut)}
+.scn-upl small{font-size:11.5px}
+.scn-mock{position:absolute;left:9%;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:3px;pointer-events:none;max-width:60%}
+.scn-mock i{display:block;width:34%;height:3px;border-radius:2px;background:rgb(255 255 255 / .55)}
+.scn-mock b{font:400 15px/1 var(--disp,inherit);color:#fff;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;text-shadow:0 2px 0 rgb(0 0 0 / .35)}
+.scn-mock span{display:block;width:44%;height:7px;margin-top:3px;border-radius:2px;background:var(--acc);box-shadow:0 2px 0 rgb(0 0 0 / .3)}
+.scn-ok{position:absolute;top:6px;right:6px;width:22px;height:22px;border-radius:50%;display:grid;place-items:center;background:var(--acc);color:var(--ink,#120c18);box-shadow:0 2px 6px rgb(0 0 0 / .4)}
+.scn-name{font-size:12.5px;font-weight:600;color:var(--tx);padding:0 2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.scn-card.on .scn-name{color:var(--acc)}
