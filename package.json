@@ -69,7 +69,8 @@
         "ca_ES"
       ],
       "language": "3082",
-      "displayLanguageSelector": false
+      "displayLanguageSelector": false,
+      "warningsAsErrors": false
     },
     "portable": {
       "artifactName": "Compass-Launcher-Portable-${version}.${ext}"

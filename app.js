@@ -846,12 +846,17 @@ function renderSettings() {
         el('small', { style: 'display:block;margin-top:10px;color:var(--dim)' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'))],
   };
   R.replaceChildren(el('div', { class: 'setwrap' }, nav, body));
-  show(STAB, renderSettings.still); requestAnimationFrame(moveInk);
+  renderSettings.show = show;
+  show(STAB, renderSettings.still);
+  // la marca de la sección elegida se coloca directamente (sin deslizarse desde arriba)
+  ink.style.transition = 'none'; moveInk(); requestAnimationFrame(() => { moveInk(); requestAnimationFrame(() => { ink.style.transition = ''; }); });
   const sc = renderSettings.keepScroll; if (sc != null) requestAnimationFrame(() => { body.scrollTop = sc; });
 }
 // vuelve a dibujar la sección abierta de Ajustes sin animaciones y sin moverte del sitio (para datos que cambian)
 function refreshSettings() {
   if (!setOpen()) return;
+  // solo se vuelve a dibujar el contenido de la sección: el menú de la izquierda no se toca
+  if (renderSettings.show && $('#p-settings .setnav')) { renderSettings.show(STAB, true); return; }
   const b = $('#p-settings .setbody'); renderSettings.still = true; renderSettings.keepScroll = b ? b.scrollTop : null;
   try { renderSettings(); } finally { renderSettings.still = false; renderSettings.keepScroll = null; }
 }
