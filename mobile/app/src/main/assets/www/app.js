@@ -38,7 +38,7 @@ function toast(msg, type = 'info', ms = 3500) {
   while ($('#toasts').childElementCount > 3) $('#toasts').firstChild.remove();
   setTimeout(() => t.remove(), ms);
 }
-const sw = (on, fn) => el('label', { class: 'sw' }, el('input', { type: 'checkbox', checked: !!on, onchange: e => fn(e.target.checked, e.target) }), el('i', {}));
+const sw = (on, fn) => el('span', { class: 'sw' }, el('input', { type: 'checkbox', checked: !!on, onchange: e => fn(e.target.checked, e.target) }));   // el mismo interruptor que en el PC
 async function busy(btn, fn) {
   if (btn) { btn.disabled = true; btn.dataset.t = btn.innerHTML; btn.innerHTML = ''; btn.append(el('span', { class: 'spin' })); }
   try { return await fn(); } catch (e) { toast(String(e.message || e), 'error', 5000); } finally { if (btn) { btn.disabled = false; btn.innerHTML = btn.dataset.t; } }
@@ -159,7 +159,7 @@ function wakePC() {
   if (!PC || !PC.mac) { toast('Aún no sé la MAC de tu PC: conéctate una vez con el PC encendido.', 'warn', 5000); return false; }
   const host = a => a && a.split(':')[0];
   const targets = [...new Set(['255.255.255.255:9', PC.bc && PC.bc + ':9', PC.bc && PC.bc + ':7', host(PC.lan) && host(PC.lan) + ':9', host(PC.pub) && host(PC.pub) + ':9', host(PC.pub) && host(PC.pub) + ':7'].filter(Boolean))];
-  N.wake(PC.mac, JSON.stringify(targets)); N.vibrate && N.vibrate(40);
+  N.wake(PC.mac, JSON.stringify(targets)); APP.vibrate && N.vibrate && N.vibrate(40);
   return true;
 }
 
@@ -176,18 +176,25 @@ function srvIcon(s, box) {
   if (s.icon) call('serverIconGet', s.id).then(u => { ICONS[s.id] = u || null; if (u) box.replaceChildren(el('img', { src: u, alt: '' })); }).catch(() => {}); else ICONS[s.id] = null;
 }
 
+// pantallas principales (barra de abajo): Servidores · Mi PC · Ajustes. Un servidor se abre encima, con «atrás».
+let TABV = 'home';
 function render() {
   window.scrollTo(0, 0);
   if (!PC) return renderWelcome();
   if (VIEW.name === 'server' && ONLINE && SV(SEL)) return renderServer();
-  if (VIEW.name === 'settings') return renderSettings();
-  VIEW = { name: 'home' }; renderHome();
+  VIEW = { name: TABV };
+  if (TABV === 'pc') renderPC(); else if (TABV === 'settings') renderSettings(); else renderHome();
+  $('#app').append(bottomNav());
+}
+function bottomNav() {
+  const it = (k, icon, t) => el('button', { class: k === TABV ? 'on' : '', onclick: () => { if (TABV !== k) { TABV = k; render(); } } }, I(icon, 22), el('span', {}, t), k === 'settings' && UPD_NEW ? el('i', { class: 'pip' }) : null);
+  return el('nav', { class: 'bnav' }, it('home', 'server', 'Servidores'), it('pc', 'pc', 'Mi PC'), it('settings', 'gear', 'Ajustes'));
 }
 function topBar(title, sub, left, right) {
   return el('div', { class: 'top' }, left || logo(), el('div', { class: 'ttl' }, el('h1', {}, title), sub ? el('small', { id: 'topSub' }, sub) : null), right || null);
 }
 function paintTop() {
-  const s = $('#topSub'); if (!s || VIEW.name !== 'home') return;
+  const s = $('#topSub'); if (!s || (VIEW.name !== 'home' && VIEW.name !== 'pc')) return;
   s.replaceChildren(el('span', { class: 'dot ' + (ONLINE ? 'on' : connecting ? 'warn' : 'off') }), ONLINE ? (BASE && PC.lan && BASE.includes(PC.lan.split(':')[0]) ? 'Conectado en casa' : 'Conectado desde fuera') : connecting ? 'Buscando tu PC…' : 'PC apagado o sin conexión');
 }
 
@@ -217,14 +224,7 @@ function renderHome() {
   const main = el('div', { class: 'main' });
   if (UPD_NEW) { main.append(updBanner()); setTimeout(paintUpd); }
   if (!ONLINE) {
-    const waking = !!WAKE, pct = waking ? Math.min(100, (Date.now() - WAKE.t0) / 1800) : 0;
-    main.append(el('div', { class: 'card wake' + (waking ? ' go' : '') }, el('span', { class: 'pc' }, I('pc', 84)),
-      el('h2', {}, waking ? 'Encendiendo tu PC…' : connecting ? 'Buscando tu PC…' : 'Tu PC está apagado'),
-      el('p', { class: 'mut' }, waking ? 'Windows y Compass están arrancando. Suele tardar entre 1 y 2 minutos: no cierres la app.' : 'O no está conectado a internet. Puedes despertarlo desde aquí.'),
-      waking ? el('div', { class: 'bar' }, el('i', { style: `width:${pct}%` })) : null,
-      el('button', { class: 'btn pri big', disabled: waking, onclick: () => startWake() }, I('power'), 'Encender PC'),
-      el('button', { class: 'btn ghost', onclick: e => busy(e.currentTarget, async () => { if (!(await connect())) toast('Sigo sin encontrar tu PC', 'warn'); }) }, 'Volver a buscar')),
-      el('div', { class: 'banner info' }, I('info', 20), el('div', { class: 'small' }, 'Si no se enciende: en el PC, Ajustes › App del móvil › paso 4 (preparar Windows, BIOS y router).')));
+    main.append(wakeCard(), el('div', { class: 'banner info' }, I('info', 20), el('div', { class: 'small' }, 'Si no se enciende: en el PC, Ajustes › App del móvil › paso 4 (preparar Windows, BIOS y router).')));
   } else {
     const run = ST.host && ST.host.id ? SV(ST.host.id) : null;
     main.append(el('div', { class: 'row', style: 'justify-content:space-between' }, el('h2', { style: 'font-size:18px' }, 'Tus servidores'), el('span', { class: 'small' }, servers.length + ' en total')));
@@ -238,11 +238,39 @@ function renderHome() {
           : el('button', { class: 'btn sm dng', disabled: h.state === 'stopping', onclick: e => { e.stopPropagation(); busy(e.currentTarget, () => call('hostStop')); } }, I('stop', 16), 'Apagar')));
     }
     if (run && ST.host.state !== 'off') main.append(el('p', { class: 'small', style: 'text-align:center' }, 'Solo puede haber un servidor encendido a la vez.'));
-    main.append(el('div', { class: 'card' }, el('h3', {}, 'Tu PC'), el('div', { class: 'grid2' },
-      el('button', { class: 'btn dng', onclick: () => pcPower('shutdown') }, I('power', 18), 'Apagar PC'),
-      el('button', { class: 'btn', onclick: () => pcPower('restart') }, I('restart', 18), 'Reiniciar PC'))));
   }
-  $('#app').replaceChildren(topBar(PC.name, ' ', null, el('button', { class: 'ib', onclick: () => { VIEW = { name: 'settings' }; render(); } }, I('menu'))), main);
+  $('#app').replaceChildren(topBar(PC.name, ' '), main);
+  paintTop();
+}
+function wakeCard() {
+  const waking = !!WAKE, pct = waking ? Math.min(100, (Date.now() - WAKE.t0) / 1800) : 0;
+  return el('div', { class: 'card wake' + (waking ? ' go' : '') }, el('span', { class: 'pc' }, I('pc', 84)),
+    el('h2', {}, waking ? 'Encendiendo tu PC…' : connecting ? 'Buscando tu PC…' : 'Tu PC está apagado'),
+    el('p', { class: 'mut' }, waking ? 'Windows y Compass están arrancando. Suele tardar entre 1 y 2 minutos: no cierres la app.' : 'O no está conectado a internet. Puedes despertarlo desde aquí.'),
+    waking ? el('div', { class: 'bar' }, el('i', { style: `width:${pct}%` })) : null,
+    el('button', { class: 'btn pri big', disabled: waking, onclick: () => startWake() }, I('power'), 'Encender PC'),
+    el('button', { class: 'btn ghost', onclick: e => busy(e.currentTarget, async () => { if (!(await connect())) toast('Sigo sin encontrar tu PC', 'warn'); }) }, 'Volver a buscar'));
+}
+// ----- Mi PC: encender, apagar y cómo está conectado -----
+function renderPC() {
+  const main = el('div', { class: 'main' });
+  if (!ONLINE) main.append(wakeCard(), el('div', { class: 'banner info' }, I('info', 20), el('div', { class: 'small' }, 'Si no se enciende: en el PC, Ajustes › App del móvil › paso 4 (preparar Windows, BIOS y router).')));
+  else main.append(el('div', { class: 'card' }, el('h3', {}, 'Encendido'),
+    el('div', { class: 'big-state' }, el('span', { class: 'ico pcico' }, I('pc', 34)), el('div', {}, el('h2', {}, 'Tu PC está encendido'), el('div', { class: 'mut' }, 'Compass ' + ((INFO && INFO.version) || '') + ' · ' + (BASE && PC.lan && BASE.includes(PC.lan.split(':')[0]) ? 'en casa' : 'desde fuera')))),
+    el('div', { class: 'grid2', style: 'margin-top:14px' },
+      el('button', { class: 'btn dng', onclick: () => pcPower('shutdown') }, I('power', 18), 'Apagar PC'),
+      el('button', { class: 'btn', onclick: () => pcPower('restart') }, I('restart', 18), 'Reiniciar PC')),
+    el('button', { class: 'btn ghost full', style: 'margin-top:8px', onclick: async () => { try { await call('pcPower', 'cancel'); toast('Apagado cancelado', 'ok'); } catch (e) { toast(e.message, 'error'); } } }, I('x', 18), 'Cancelar un apagado')));
+  main.append(el('div', { class: 'card' }, el('h3', {}, 'Conexión'),
+    el('div', { class: 'kv' }, el('span', {}, 'Nombre'), el('b', {}, PC.name)),
+    el('div', { class: 'kv' }, el('span', {}, 'En casa'), el('b', {}, PC.lan || '—')),
+    el('div', { class: 'kv' }, el('span', {}, 'Desde fuera'), el('b', {}, PC.pub || '—')),
+    el('div', { class: 'kv' }, el('span', {}, 'MAC (para encenderlo)'), el('b', {}, PC.mac || '—'))),
+    el('div', { class: 'card stack' }, el('h3', {}, 'Emparejamiento'),
+      el('button', { class: 'btn full', onclick: () => { if (wakePC()) toast('Aviso de encendido enviado', 'ok'); } }, I('power', 18), 'Enviar aviso de encendido'),
+      el('button', { class: 'btn full', onclick: () => N.scan() }, I('qr', 18), 'Volver a emparejar'),
+      el('button', { class: 'btn dng full', onclick: async () => { if (await confirmBox('¿Olvidar este PC?', 'Tendrás que volver a escanear el código para controlarlo.', 'Olvidar', true)) { N.del('pc'); PC = null; BASE = null; setOnline(false); render(); } } }, I('trash', 18), 'Olvidar este PC')));
+  $('#app').replaceChildren(topBar('Mi PC', ' '), main);
   paintTop();
 }
 async function startWake() {
@@ -250,7 +278,7 @@ async function startWake() {
   WAKE = { t0: Date.now() }; render(); toast('Aviso de encendido enviado', 'ok');
   const tick = async () => {
     if (!WAKE) return;
-    if (ONLINE) { WAKE = null; toast('¡Tu PC ya está encendido!', 'ok'); N.vibrate && N.vibrate(80); render(); return; }
+    if (ONLINE) { WAKE = null; toast('¡Tu PC ya está encendido!', 'ok'); APP.vibrate && N.vibrate && N.vibrate(80); render(); return; }
     const el2 = Date.now() - WAKE.t0;
     if (el2 > 240000) { WAKE = null; render(); toast('El PC no ha respondido. Revisa en el PC la guía del paso 4.', 'warn', 7000); return; }
     if (el2 % 20000 < 4000) wakePC();   // se repite el aviso cada ~20 s por si se perdió
@@ -287,10 +315,11 @@ function paintSrvHead() {
   const h = hostOf(s.id), M = HS[h.state] || HS.off;
   sub.replaceChildren(el('span', { class: 'dot ' + (M[1] || 'off') }), M[0] + (h.state === 'ready' ? ` · ${h.players.length} jugando` : '') + ' · ' + typeName(s.type));
 }
-function goBack() { VIEW = { name: 'home' }; render(); }
+function goBack() { VIEW = { name: TABV }; render(); }
 window.onBack = () => {   // botón «atrás» de Android
   if (window.onBackSheet) { window.onBackSheet(); return true; }
-  if (VIEW.name !== 'home' && PC) { goBack(); return true; }
+  if (VIEW.name === 'server' && PC) { goBack(); return true; }
+  if (TABV !== 'home' && PC) { TABV = 'home'; render(); return true; }
   return false;
 };
 async function renderTab() {
@@ -449,31 +478,38 @@ async function tabAuto(s) {
   el('div', { class: 'banner info' }, I('info', 20), el('div', { class: 'small' }, 'Truco: activa «Encender este servidor al abrir Compass» y con un solo botón («Encender PC») tendrás el PC y el servidor listos.'))];
 }
 
-// ----- ajustes de la app -----
+// ----- ajustes de la app (solo del móvil) -----
+const APP = Object.assign({ theme: 'pc', scheme: 'pc', anim: true, vibrate: true, autoUpd: true }, store.get('app', {}));
+const saveApp = () => store.set('app', APP);
 function renderSettings() {
+  const th = typeof THEMES !== 'undefined' ? THEMES : {};
+  const themeSel = el('select', { class: 'in', onchange: e => { APP.theme = e.target.value; saveApp(); applyLook(store.get('look', {})); } },
+    el('option', { value: 'pc' }, 'El mismo que en mi PC'), ...Object.entries(th).map(([k, t]) => el('option', { value: k }, t.name)));
+  themeSel.value = APP.theme;
+  const seg = (cur, opts, fn) => el('div', { class: 'seg' }, ...opts.map(([v, t]) => el('button', { class: v === cur ? 'on' : '', onclick: e => { $$('button', e.currentTarget.parentNode).forEach(b => b.classList.toggle('on', b === e.currentTarget)); fn(v); } }, t)));
+  const tg = (title, sub, on, fn) => el('div', { class: 'tg' }, el('div', { class: 't' }, el('b', {}, title), sub ? el('small', {}, sub) : null), sw(on, fn));
   const main = el('div', { class: 'main' },
-    el('div', { class: 'card' }, el('h3', {}, 'Tu PC'),
-      el('div', { class: 'kv' }, el('span', {}, 'Nombre'), el('b', {}, PC.name)),
-      el('div', { class: 'kv' }, el('span', {}, 'En casa'), el('b', {}, PC.lan || '—')),
-      el('div', { class: 'kv' }, el('span', {}, 'Desde fuera'), el('b', {}, PC.pub || '—')),
-      el('div', { class: 'kv' }, el('span', {}, 'MAC (para encenderlo)'), el('b', {}, PC.mac || '—')),
-      el('div', { class: 'kv' }, el('span', {}, 'Estado'), el('b', {}, ONLINE ? 'Conectado' : 'Sin conexión'))),
-    el('div', { class: 'card stack' }, el('h3', {}, 'Acciones'),
-      el('button', { class: 'btn full', onclick: () => { if (wakePC()) toast('Aviso de encendido enviado', 'ok'); } }, I('power', 18), 'Enviar aviso de encendido'),
-      ONLINE ? el('button', { class: 'btn full', onclick: async () => { try { await call('pcPower', 'cancel'); toast('Apagado cancelado', 'ok'); } catch (e) { toast(e.message, 'error'); } } }, I('x', 18), 'Cancelar apagado del PC') : null,
-      el('button', { class: 'btn full', onclick: () => N.scan() }, I('qr', 18), 'Volver a emparejar'),
-      el('button', { class: 'btn dng full', onclick: async () => { if (await confirmBox('¿Olvidar este PC?', 'Tendrás que volver a escanear el código para controlarlo.', 'Olvidar', true)) { N.del('pc'); PC = null; BASE = null; setOnline(false); render(); } } }, I('trash', 18), 'Olvidar este PC')),
-    el('div', { class: 'card stack' }, el('h3', {}, 'App'),
-      el('div', { class: 'kv' }, el('span', {}, 'Versión'), el('b', {}, N.version())),
-      UPD_NEW ? updBanner() : el('button', { class: 'btn full', onclick: e => busy(e.currentTarget, async () => { await checkUpdate(); toast(UPD_NEW ? 'Hay una versión nueva: ' + UPD_NEW : 'Tienes la última versión', UPD_NEW ? 'info' : 'ok'); render(); }) }, I('download', 18), 'Buscar actualizaciones'),
+    UPD_NEW ? updBanner() : null,
+    el('div', { class: 'card' }, el('h3', {}, 'Aspecto'),
+      el('div', { class: 'field' }, el('label', {}, 'Tema'), themeSel),
+      el('div', { class: 'field' }, el('label', {}, 'Claro u oscuro'), seg(APP.scheme, [['pc', 'Como el PC'], ['system', 'Sistema'], ['dark', 'Oscuro'], ['light', 'Claro']], v => { APP.scheme = v; saveApp(); applyLook(store.get('look', {})); })),
+      tg('Fondo animado', 'Estrellas, nubes y demás. Apágalo para ahorrar batería.', APP.anim, v => { APP.anim = v; saveApp(); applyLook(store.get('look', {})); })),
+    el('div', { class: 'card' }, el('h3', {}, 'App'),
+      tg('Vibrar', 'Al encender el PC y cuando termina de arrancar.', APP.vibrate, v => { APP.vibrate = v; saveApp(); }),
+      tg('Buscar actualizaciones solas', 'Al abrir la app y cada 6 horas.', APP.autoUpd, v => { APP.autoUpd = v; saveApp(); })),
+    el('div', { class: 'card stack' }, el('h3', {}, 'Actualizaciones'),
+      el('div', { class: 'kv' }, el('span', {}, 'Versión de la app'), el('b', {}, N.version())),
+      UPD_NEW ? null : el('button', { class: 'btn full', onclick: e => busy(e.currentTarget, async () => { await checkUpdate(); toast(UPD_NEW ? 'Hay una versión nueva: ' + UPD_NEW : 'Tienes la última versión', UPD_NEW ? 'info' : 'ok'); render(); }) }, I('download', 18), 'Buscar actualizaciones'),
       el('button', { class: 'btn ghost full', onclick: () => N.open(`https://github.com/${REPO}/releases`) }, 'Ver todas las versiones')),
-    el('div', { class: 'card stack' }, el('h3', {}, 'Acerca de'),
+    el('div', { class: 'card stack about' }, el('h3', {}, 'Acerca de'),
+      el('div', { class: 'row', style: 'gap:12px;flex-wrap:nowrap' }, logo(), el('div', {}, el('b', { class: 'disp' }, 'Compass'), el('div', { class: 'small' }, 'Versión ' + N.version()))),
       el('p', { class: 'mut', html: '¡Buenas! Soy <b>luckicla</b> y hago Compass Launcher yo solo, en mis ratos libres, por puro gusto y porque me lo paso bien programando.' }),
       el('p', { class: 'mut' }, 'Empezó porque quería jugar con mis amigos en nuestro propio servidor con mods sin pelearme con carpetas, versiones ni puertos. Me pareció que molaba y quiero que otra gente pueda usarlo gratis.'),
       el('p', { class: 'mut' }, 'No tiene anuncios ni recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
       el('button', { class: 'btn full', onclick: () => N.open('https://luckicla.github.io/compass-launcher/') }, 'Web de Compass'),
-      el('p', { class: 'small' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).')));
-  $('#app').replaceChildren(topBar('Ajustes', null, el('button', { class: 'ib', onclick: goBack }, I('back'))), main);
+      el('p', { class: 'small' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'),
+      el('p', { class: 'small' }, '© 2026 luckicla. Todos los derechos reservados.')));
+  $('#app').replaceChildren(topBar('Ajustes', null), main);
 }
 
 // ---------- actualizaciones de la app ----------
@@ -513,15 +549,21 @@ async function checkUpdate() {
 }
 
 // ---------- aspecto: el mismo tema, colores y fondo animado que Compass en tu PC ----------
-function applyLook(look) { try { applyTheme(look || {}); } catch (e) { console.error(e); } }
+function applyLook(look) {
+  const L = { ...(look || {}) };
+  if (APP.theme !== 'pc') { L.theme = APP.theme; L.bg = 'tema'; L.accent = 'tema'; L.accent2 = 'tema'; L.font = 'tema'; L.corners = 'tema'; }
+  if (APP.scheme !== 'pc') L.scheme = APP.scheme;
+  if (!APP.anim) L.anim = false;
+  try { applyTheme(L); } catch (e) { console.error(e); }
+}
 if (typeof BG !== 'undefined') document.body.prepend(BG.el);
 applyLook(store.get('look', {}));
 
 // ---------- arranque ----------
 render();
 if (PC) connect().then(() => render());
-checkUpdate().then(() => { if (UPD_NEW && VIEW.name === 'home') render(); });
-setInterval(() => checkUpdate().then(() => { if (UPD_NEW && VIEW.name === 'home' && !$('.updbtn')) render(); }), 6 * 3600e3);   // y cada 6 horas
+if (APP.autoUpd) checkUpdate().then(() => { if (UPD_NEW && VIEW.name === 'home') render(); });
+setInterval(() => APP.autoUpd && checkUpdate().then(() => { if (UPD_NEW && VIEW.name === 'home' && !$('.updbtn')) render(); }), 6 * 3600e3);   // y cada 6 horas
 setInterval(() => { if (PC && !ONLINE && !connecting && !WAKE && document.visibilityState === 'visible') connect(); }, 15000);
 document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible' && PC) { if (!ONLINE) connect(); else if (!ES) openEvents(); } });
 window.onResume = () => { if (PC && !ONLINE) connect(); };

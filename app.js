@@ -720,7 +720,13 @@ function makeStore(getT, opts = {}) {
     b.onclick = () => act(b, async () => {
       const t = opts.ask ? await pickProfileFor(m.title, getT()) : getT();
       if (!t) return;
-      const r = await A.call('storeInstall', { t, id: m.id, source: S.src });
+      let r = await A.call('storeInstall', { t, id: m.id, source: S.src });
+      if (r && r.blocked) {   // las dependencias ya se han intentado resolver; lo que queda no encaja
+        const ok = await modal('No encaja del todo', el('div', {}, el('p', { style: 'color:var(--mut);margin-bottom:10px' }, `He instalado lo que necesitaba ${m.title}${r.got && r.got.length ? ' (' + r.got.join(', ') + ')' : ''}, pero aún queda esto:`),
+          el('ul', { style: 'margin-left:18px;display:grid;gap:6px;font-size:13px' }, ...r.issues.slice(0, 6).map(i => el('li', {}, i.text)))), [{ t: 'No instalarlo', v: false }, { t: 'Instalar igualmente', v: true, cls: 'pri' }]);
+        if (!ok) return;
+        r = await A.call('storeInstall', { t, id: m.id, source: S.src, force: true });
+      }
       b.className = 'btn sm'; b.replaceChildren(I('check', 14), 'Instalado'); setTimeout(() => b.disabled = true);
       if (r.issues && r.issues.length) toast(m.title + ' instalado, pero hay mods que no encajan. Revisa la lista de instalados.', 'warn', 8000); else toast(m.title + ' instalado', 'ok', 3000);
       if (opts.onInstalled) opts.onInstalled();
@@ -843,7 +849,8 @@ function renderSettings() {
         el('p', {}, 'No tiene anuncios ni recoge datos de nadie. Si algo falla o se te ocurre alguna idea, dímelo en GitHub y le echo un ojo.'),
         el('div', { class: 'row', style: 'margin-top:10px' }, el('button', { class: 'btn sm', onclick: () => A.call('openUrl', 'https://luckicla.github.io/compass-launcher/') }, I('globe', 14), 'Web de Compass'),
           el('button', { class: 'btn sm ghost', onclick: () => A.call('openUrl', 'https://github.com/luckicla/compass-launcher') }, I('external', 14), 'GitHub')),
-        el('small', { style: 'display:block;margin-top:10px;color:var(--dim)' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'))],
+        el('small', { style: 'display:block;margin-top:10px;color:var(--dim)' }, 'Parte del proyecto lo he hecho con ayuda de IA (Claude Opus 5.5).'),
+        el('small', { style: 'display:block;margin-top:4px;color:var(--dim)' }, '© 2026 luckicla. Todos los derechos reservados.'))],
   };
   R.replaceChildren(el('div', { class: 'setwrap' }, nav, body));
   renderSettings.show = show;

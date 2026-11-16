@@ -1,9 +1,9 @@
 {
   "name": "compass-launcher",
-  "version": "5.2.0",
+  "version": "5.2.1",
   "description": "Compass Launcher: juega con tus amigos y monta tus propios servidores de Minecraft con mods",
   "main": "main.js",
-  "author": "Compass",
+  "author": "luckicla",
   "scripts": {
     "start": "electron .",
     "dist": "electron-builder --win nsis portable --publish never",
@@ -75,7 +75,7 @@
     "portable": {
       "artifactName": "Compass-Launcher-Portable-${version}.${ext}"
     },
-    "copyright": "© Compass",
+    "copyright": "© 2026 luckicla. Todos los derechos reservados.",
     "afterPack": "build/afterPack.js",
     "publish": [
       {
@@ -89,5 +89,6 @@
   "repository": {
     "type": "git",
     "url": "https://github.com/luckicla/compass-launcher.git"
-  }
+  },
+  "license": "UNLICENSED"
 }

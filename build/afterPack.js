@@ -11,7 +11,7 @@ module.exports = async ctx => {
     icon: path.join(__dirname, 'icon.ico'),
     'file-version': v, 'product-version': v,
     'version-string': { CompanyName: 'Compass', FileDescription: 'Compass Launcher', ProductName: 'Compass Launcher', InternalName: 'Compass Launcher',
-      OriginalFilename: 'Compass Launcher.exe', LegalCopyright: '© Compass' },
+      OriginalFilename: 'Compass Launcher.exe', LegalCopyright: '© 2026 luckicla. Todos los derechos reservados.' },
   });
   console.log('  • Compass Launcher: nombre e icono puestos en ' + path.basename(exe));
 };

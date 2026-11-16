@@ -253,6 +253,46 @@ async function mrInstall(idOrSlug, t, done = new Set(), versionId = null) {   //
     }
   return true;
 }
+// Instalar un mod de Modrinth con sus dependencias resueltas ANTES de ponerlo:
+// se descarga aparte, se miran sus dependencias (las de Modrinth y las de su fabric.mod.json), se instala lo
+// que falta y se actualiza lo que se ha quedado viejo, y solo entonces se pone el mod. Si aun así no
+// encaja (otra versión de Minecraft, choca con otro mod…), no se pone y se explica por qué.
+async function safeMrInstall(idOrSlug, t, force) {
+  const v = pickVer(await projectVersions(idOrSlug, t.mc));
+  if (!v) throw new Error(`No hay versión de «${idOrSlug}» para Minecraft ${t.mc}`);
+  if ((await installedIds(t.mods)).has(v.project_id)) return { already: true };
+  const f = primary(v), tmpd = path.join(U(), 'tmp', 'nuevo-' + uid()), tf = path.join(tmpd, f.filename);
+  fs.mkdirSync(tmpd, { recursive: true });
+  try {
+    try { await ensureFabric(t.mc); } catch {}   // para comprobar con el Fabric Loader más nuevo, que es el que se usará
+    await dl(f.url, tf, 'Descargando ' + f.filename);
+    const meta = compat.readMeta(tf), got = [];
+    prog('Preparando lo que necesita ' + ((meta && meta.name) || f.filename), 60);
+    const done = new Set([v.project_id]);
+    for (const d of v.dependencies || []) if (d.dependency_type === 'required' && d.project_id) {
+      try { if (await mrInstall(d.project_id, t, done, d.version_id || null)) got.push(d.project_id); } catch (e) { log('Dependencia: ' + e.message); }
+    }
+    const keep = t.kind === 'profile' ? ((prof(t.id) || {}).managed || []) : [];
+    const mine = async () => {
+      const items = (await listLocal(t.mods)).filter(i => i.enabled);
+      const all = [...items.map(i => ({ file: i.file, meta: metaOf(path.join(t.mods, i.file), i.sha1) })), { file: f.filename, meta }];
+      return compat.check(all, ctxOf(t)).filter(is => (is.mod && is.mod.file === f.filename) || (is.other && is.other.file === f.filename));
+    };
+    for (let round = 0; round < 4; round++) {
+      const fix = (await mine()).filter(i => i.mod && i.mod.file === f.filename && (i.type === 'missing' || i.type === 'version'));
+      if (!fix.length) break;
+      let any = false;
+      for (const i of fix) { try { if (i.type === 'missing' ? await installDep(i.dep, t) : await upgradeDep(i.dep, t, keep)) { any = true; got.push(i.dep); } } catch {} }
+      if (!any) break;
+    }
+    const left = (await mine()).filter(i => i.type !== 'duplicate');
+    if (left.length && !force) return { blocked: true, issues: left, got };
+    fs.copyFileSync(tf, path.join(t.mods, f.filename));
+    mcache()[f.hashes.sha1] = { projectId: v.project_id, ver: v.version_number, url: f.url }; saveMcache();
+    log(`Instalado ${f.filename}${got.length ? ' con: ' + got.join(', ') : ''}`);
+    return { file: f.filename, got };
+  } finally { try { fs.rmSync(tmpd, { recursive: true, force: true }); } catch {} prog('', 0); }
+}
 // ---------- dependencias: leer lo que pide cada mod (fabric.mod.json) y bajarlo solo ----------
 // El id de un mod no siempre coincide con su nombre en Modrinth, así que se prueban varios
 // candidatos y se comprueba DENTRO del .jar descargado que de verdad es el mod que se pide.
@@ -2440,12 +2480,13 @@ const H = {
     return { installed: n, fixed: fix.fixed, remaining: fix.remaining };
   },
   storeSearch: async ({ t, q, source, sort, offset }) => source === 'curseforge' ? cfSearch(tgt(t), q, sort, offset) : mrSearch(tgt(t), q, sort, offset),
-  storeInstall: async ({ t: t0, id, source }) => {
+  storeInstall: async ({ t: t0, id, source, force }) => {
     const t = tgt(t0); fs.mkdirSync(t.mods, { recursive: true });
-    if (source === 'curseforge') await cfInstall(id, t); else await mrInstall(id, t);
-    try { await resolveDeps(t); } catch {}
+    let r = {};
+    if (source === 'curseforge') { await cfInstall(id, t); try { await resolveDeps(t); } catch {} }
+    else { r = await safeMrInstall(id, t, force); if (r.blocked) return r; }
     prog('', 0);
-    return { issues: await issuesOf(t) };
+    return { ...r, issues: await issuesOf(t) };
   },
 
   // ----- jugar -----

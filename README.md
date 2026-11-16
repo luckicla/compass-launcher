@@ -14,3 +14,7 @@ Launcher de Minecraft para jugar con tus amigos y montar tus propios servidores 
 1. Se cambia `version` en `package.json`.
 2. Se sube a `main`.
 3. GitHub Actions crea los `.exe` y los publica en Releases. Los Compass instalados la descargan solos.
+
+## Licencia
+
+© 2026 luckicla. Todos los derechos reservados. Compass Launcher es gratis de usar, pero no se permite copiarlo, modificarlo ni redistribuirlo sin permiso. Mira [LICENSE](LICENSE).
