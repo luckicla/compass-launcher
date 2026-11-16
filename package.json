@@ -1,0 +1,81 @@
+{
+  "name": "compass-launcher",
+  "version": "5.0.0",
+  "description": "Compass Launcher: juega con tus amigos y monta tus propios servidores de Minecraft con mods",
+  "main": "main.js",
+  "author": "Compass",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win nsis portable --publish never",
+    "release": "electron-builder --win nsis portable --publish always"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.16",
+    "minecraft-launcher-core": "^3.18.2",
+    "msmc": "^5.0.4",
+    "@silentbot1/nat-api": "^0.4.9",
+    "electron-updater": "^6.3.9"
+  },
+  "devDependencies": {
+    "electron": "^31.0.0",
+    "electron-builder": "^24.13.3",
+    "rcedit": "^3.1.0"
+  },
+  "build": {
+    "appId": "es.compas.launcher",
+    "productName": "Compass Launcher",
+    "directories": {
+      "buildResources": "build",
+      "output": "dist"
+    },
+    "files": [
+      "**/*",
+      "!dist/**",
+      "!build/**",
+      "!*.bat",
+      "!.github/**",
+      "!LEEME.txt",
+      "!mobile/**",
+      "!*.md"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ],
+      "icon": "build/icon.ico",
+      "signAndEditExecutable": false,
+      "legalTrademarks": "Compass Launcher"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "runAfterFinish": true,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "shortcutName": "Compass Launcher",
+      "uninstallDisplayName": "Compass Launcher",
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "artifactName": "Compass-Launcher-Instalador-${version}.${ext}"
+    },
+    "portable": {
+      "artifactName": "Compass-Launcher-Portable-${version}.${ext}"
+    },
+    "copyright": "© Compass",
+    "afterPack": "build/afterPack.js",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "luckicla",
+        "repo": "compass-launcher",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/luckicla/compass-launcher.git"
+  }
+}

@@ -1,0 +1,148 @@
+COMPASS LAUNCHER 5.0
+====================
+
+NOVEDADES DE LA 5.0
+  - Actualizaciones automáticas: Compass mira si hay versión nueva al abrirse y cada 4 horas, la
+    descarga sola y se instala al cerrar. Te avisa con una tarjeta con los colores de tu tema.
+    Nueva zona en Ajustes > Actualizaciones (buscar, novedades, reiniciar y actualizar, y elegir si
+    se descargan solas). La versión portable avisa y abre la descarga del .exe nuevo.
+  - Botones de la ventana propios (minimizar, maximizar y cerrar), como en Discord, con los colores
+    del tema. Se puede mover la ventana desde cualquier hueco de la barra de arriba.
+
+ARREGLOS DE LA 5.0
+  - «Entrar yo»: los mods se copian directamente de la carpeta de tu servidor, sin depender de
+    internet, y si algo falla te lo dice en vez de abrir el juego sin mods. Si Fabric pide una
+    versión más nueva de una librería (por ejemplo Kotlin), ahora se actualiza en tu perfil y se
+    recuerda (antes se volvía a poner la vieja cada vez y nunca entraba).
+  - Java 25 (y cualquier otro): si Adoptium falla o está bloqueado se prueba con el Java oficial de
+    Mojang, luego con Azul Zulu y luego con Microsoft; y si nada funciona, usa el Java que ya tengas
+    en el PC (por ejemplo el del launcher oficial). Las descargas que se quedan paradas se cortan y
+    reintentan a los 40 segundos en vez de quedarse esperando. La versión de Java se lee de Mojang.
+
+ARREGLOS DE LA 4.4
+  - «Vas a jugar con»: el menú para cambiar de perfil ya se abre donde toca y se puede elegir.
+  - «Entrar yo» en tu servidor ya no da el error «mod resolution … kotlin»: ahora usa un perfil
+    propio con la misma versión y los mismos mods que el servidor (también los minimapas y demás
+    mods solo de cliente), igual que reciben tus amigos. Antes usaba tu perfil activo.
+  - La comprobación de mods se hace DESPUÉS de sincronizar con el servidor y de poner el zoom y la
+    vista libre (antes se comprobaban mods que luego cambiaban).
+  - Si Fabric no arranca por los mods, Compass lee el motivo, pone o actualiza lo que falte (por
+    ejemplo Fabric Language Kotlin) y te ofrece volver a jugar. Si lo que falla es el zoom o la
+    vista libre, se quitan de ese perfil.
+  - Si tienes por tu cuenta un mod que el servidor ya trae, se queda el del servidor (sin repetidos).
+  - Acerca de enseña la versión de verdad.
+
+NOVEDADES DE LA 4.4
+  Perfiles
+  - En la barra de la izquierda salen tus perfiles y, debajo, los servidores de amigos.
+  - Clic derecho (en la barra, en un perfil o en cualquier sitio): Nuevo perfil, Editar, Convertir
+    en servidor, Quitar…
+  - Cada perfil puede tener imagen y descripción.
+  - Convertir un perfil en servidor: misma versión, sus mods, su imagen y, si quieres, uno de sus
+    mundos (se copia; tu mundo no se toca).
+
+  Skin y capa
+  - Pulsa tu nombre o tu cabeza arriba a la derecha: ves tu skin de frente y de espaldas con tu
+    capa. Puedes subir una skin (o arrastrarla), cambiar entre brazos normales y finos, ponerte una
+    de «Mis skins» con un clic, volver a la de serie y elegir capa o quitarla.
+
+  Servidores
+  - Nuevo tipo «Mods + plugins» (Arclight): mods de Fabric y plugins de Bukkit/Paper a la vez.
+    Solo hay algunas versiones de Minecraft (la lista se pone sola al elegirlo).
+
+  - Amigos con otro launcher: abren en el navegador tu dirección con http:// delante (por
+    ejemplo http://83.45.12.9:25565) y ven una página con los mods en .zip e instrucciones.
+
+  Aspecto
+  - El selector Jugar / Servidores ya no tiene la caja de fondo.
+  - Transiciones nuevas entre Jugar y Servidores: Píxeles, Bloques que caen, Barrido de rombos,
+    Cortina, Círculo, Portal en espiral, Fundido, Deslizar o ninguna, con velocidad. En Ajustes >
+    Apariencia (al pulsar una se ve cómo queda).
+  - Logo de Compass más grande y vistoso dentro del juego (con volumen y brillo) y «LAUNCHER»
+    debajo, donde Minecraft pone «Java Edition».
+
+NOVEDADES DE LA 4.3
+  Servidores y amigos
+  - Tus amigos entran solo con tu IP (o el código) y reciben todo: los mods, el nombre del
+    servidor (ya no sale tu IP), el icono y la descripción. Todo va por el mismo puerto del
+    juego (25565): si lo abriste a mano, ya no hace falta abrir nada más.
+  - Cada mod se busca primero en la tienda (Modrinth y CurseForge). Si no está, se lo pasas
+    tú directamente desde tu PC. Y si tampoco se puede, se busca el mismo mod en la tienda
+    para esa versión. Si falla uno, los demás se descargan igual y te dice cuál falta.
+  - Los mods solo de cliente (minimapas, zoom…) se los descargan también tus amigos.
+  - Nuevo modo de red «Puerto abierto a mano». El modo automático abre el 25565 en TCP y UDP.
+  - La primera vez que enciendes un servidor, Windows pide permiso para el cortafuegos.
+  - Los perfiles de amigos que se quedaron «sin mods» se arreglan solos al pulsar Jugar.
+
+  Dentro del juego (como en Lunar; todo se puede quitar en Ajustes > Jugar)
+  - Mismos ajustes en todos los perfiles y versiones: controles, sonido, FOV, gráficos…
+  - Zoom con la C y vista libre con el Alt (se instalan solos los mods que hacen falta).
+  - Logo de Compass Launcher en el menú de Minecraft y, en servidores de amigos, el botón
+    Multijugador pasa a ser «Conectar al servidor».
+
+  Instalador
+  - Ahora detecta la versión que tengas y la actualiza en la misma carpeta, sin preguntar.
+    Tus perfiles, servidores y sesión se conservan. El portable es un solo .exe: basta con
+    usar el nuevo.
+  - Windows ya lo muestra como «Compass Launcher» con su icono (antes salía «Electron»).
+    Ojo: con «probar-sin-instalar.bat» seguirá saliendo Electron; en el .exe ya no.
+
+ARREGLO 4.2.1
+  - Arreglado «invalid block type» al instalar Java: el archivo de Java llegaba dañado y no
+    se comprobaba. Ahora se verifica con la suma SHA-256 de Adoptium y, si no coincide, se
+    vuelve a descargar (hasta 3 veces). Se descomprime con el tar de Windows, luego con
+    PowerShell y por último con adm-zip.
+  - El error ya no habla del antivirus siempre: da una pista según lo que haya fallado.
+
+NOVEDADES DE LA 4.2
+  Arreglos
+  - Arreglado «could not open ...jvm.cfg» al arrancar el servidor: Java se había quedado
+    a medio instalar. Ahora se comprueba que esté entero, se reinstala solo si está roto
+    y, si pasa al arrancar, lo repara y vuelve a arrancar sin que hagas nada.
+  - Arreglado el aviso falso de que Lithium (y otros) «necesitan mixinextras»: viene dentro
+    de Fabric. Además, Compass lee lo que pide cada mod y descarga solo lo que falte.
+  - Los colores del mensaje del servidor (§) y las tildes ya se guardan bien.
+
+  Servidores
+  - Permiso SOLO de TP (Gente): sin OP, sin modo de juego ni nada más. Quien lo tenga
+    escribe en el chat «!tp Nombre» o «!tp x y z».
+  - Servidores con plugins (Paper), con tienda de plugins y dependencias automáticas.
+  - Personalización: icono que ven tus amigos, mensaje con colores y vista previa,
+    mensaje de bienvenida, color, descripción y pack de recursos del servidor.
+  - Mundo nuevo con vista previa del spawn y la semilla que quieras.
+  - Nether y End: se cierran o abren con un clic, al momento.
+  - Pestaña Automático: modo 24/7 (el PC no se duerme, el servidor arranca solo,
+    Compass se abre al encender el PC) y tareas programadas: guardar, copias,
+    mensajes, comandos y reinicios cada X tiempo o a una hora fija.
+  - Banear y desbanear desde el resumen y con clic derecho.
+
+  Interfaz
+  - Nuevo aspecto pixel art con tipografía propia estilo Minecraft (Compass Pixel).
+  - Temas: Compass, Galaxia, Minecraft 2026, Minecraft 2009, Solarpunk, Cyberpunk,
+    Frutiger Aero y Teppanyaki. Cada uno en claro y oscuro (o como el sistema).
+  - Fondos animados: galaxia, nebulosa, aurora, synthwave, sakura, burbujas, bloques…
+  - Ajustes > Apariencia: colores, fondo, transparencias, desenfoque, letra, esquinas,
+    tamaño, cristal de Windows 11 y más.
+  - Los Ajustes se abren por encima de la app. Nuevo icono de ajustes.
+  - Transición pixelada al cambiar entre Jugar y Servidores.
+  - Clic derecho en casi todo: mods, perfiles, servidores, jugadores, consola, textos…
+  - La Tienda (antes «Tienda de mods») tiene Mods, Shaders, Resource packs, Modpacks y Mapas.
+  - Al abrir por primera vez te pregunta si vas a crear servidores y qué estilo quieres.
+
+Cómo sacar el .exe (en tu PC con Windows):
+  1. Descomprime esta carpeta donde quieras.
+  2. Doble clic en "construir-instalador.bat".
+     - Si no tienes Node.js, lo instala solo (si te lo pide, vuelve a abrir el .bat).
+     - La primera vez tarda unos minutos: descarga Electron y las librerías.
+  3. Se abre la carpeta "dist" con dos archivos:
+     - Compass-Launcher-Instalador-5.0.0.exe  -> instala la app con acceso directo.
+     - Compass-Launcher-Portable-5.0.0.exe    -> un solo .exe, sin instalar nada.
+
+Para probarla sin crear el .exe: doble clic en "probar-sin-instalar.bat".
+
+GitHub: el código está en https://github.com/luckicla/compass-launcher
+Cada vez que se sube una versión nueva (el número de package.json), GitHub crea los .exe
+y los publica en "Releases"; los Compass instalados la reciben solos.
+
+Tus perfiles, servidores y sesión de la versión anterior (Compas Launcher)
+se conservan: la app los mueve sola la primera vez que se abre.

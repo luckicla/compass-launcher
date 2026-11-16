@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src 'self' https: data:; style-src 'self' 'unsafe-inline'; script-src 'self'">
+<title>Compass Launcher</title>
+<link rel="stylesheet" href="app.css">
+<link rel="stylesheet" href="theme.css">
+</head>
+<body>
+<div id="app" data-mode="play">
+  <header id="top">
+    <div class="brand"><span class="mark" id="mark"></span><b>Compass <span>Launcher</span></b></div>
+    <div class="modes" role="tablist" aria-label="Zona">
+      <span class="thumb"></span>
+      <button class="on" data-mode="play" role="tab"><i data-i="play" data-s="15"></i>Jugar</button>
+      <button data-mode="host" role="tab"><i data-i="server" data-s="16"></i>Servidores</button>
+    </div>
+    <div class="sp"></div>
+    <button class="pill" id="hostPill" hidden></button>
+    <div id="acct"></div>
+    <button class="iconbtn" id="gear" title="Ajustes (Ctrl+,)"><i data-i="gear" data-s="17"></i><span>Ajustes</span></button>
+    <div class="winctl" id="winctl" role="group" aria-label="Ventana">
+      <button data-w="min" title="Minimizar"><svg viewBox="0 0 12 12" width="12" height="12"><rect x="1" y="5.5" width="10" height="1.6" fill="currentColor"/></svg></button>
+      <button data-w="max" title="Maximizar"><svg class="wmax" viewBox="0 0 12 12" width="12" height="12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="currentColor" stroke-width="1.6"/></svg><svg class="wres" viewBox="0 0 12 12" width="12" height="12"><path d="M3.5 3.5V1.5h7v7h-2" fill="none" stroke="currentColor" stroke-width="1.6"/><rect x="1.5" y="3.5" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.6"/></svg></button>
+      <button data-w="close" class="x" title="Cerrar"><svg viewBox="0 0 12 12" width="12" height="12"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.7" stroke-linecap="square"/></svg></button>
+    </div>
+  </header>
+
+  <div id="body">
+    <nav id="rail">
+      <!-- zona Jugar -->
+      <div id="railPlay">
+        <button class="nav on" data-p="home"><i data-i="home"></i><span>Inicio</span></button>
+        <button class="nav" data-p="profiles"><i data-i="profiles"></i><span>Perfiles</span></button>
+        <button class="nav" data-p="mods"><i data-i="bag"></i><span>Tienda</span></button>
+        <div class="railsec" id="railProfSec">Tus perfiles<button id="railNewProf" title="Nuevo perfil"><i data-i="plus" data-s="16"></i></button></div>
+        <div id="railProfiles"></div>
+        <div class="railsec" id="railFriendSec">Servidores de amigos<button id="railJoin" title="Unirme con una IP o un código"><i data-i="plus" data-s="16"></i></button></div>
+        <div id="railFriends"></div>
+      </div>
+      <!-- zona Servidores -->
+      <div id="railHost" hidden>
+        <div class="railsec" style="margin-top:4px">Tus servidores<button id="railNew" title="Nuevo servidor"><i data-i="plus" data-s="16"></i></button></div>
+        <div id="railServers"></div>
+      </div>
+      <div class="railfoot" id="railFoot"></div>
+    </nav>
+
+    <main id="view">
+      <section class="page on" id="p-home"></section>
+      <section class="page" id="p-profiles"></section>
+      <section class="page" id="p-mods"></section>
+      <section id="h-server" hidden></section>
+    </main>
+  </div>
+</div>
+<div id="setOverlay" hidden>
+  <div class="sheet panel" role="dialog" aria-label="Ajustes">
+    <header><h1>Ajustes</h1><small id="setHint">Todo se guarda al momento</small><button class="btn ghost ico" id="setClose" title="Cerrar (Esc)"><i data-i="x" data-s="18"></i></button></header>
+    <section id="p-settings"></section>
+  </div>
+</div>
+<div id="toasts"></div>
+<script src="icons.js"></script>
+<script src="theme.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,37 @@
+# Cada vez que se sube código a GitHub:
+#  - Se crea el instalador y el portable de Windows.
+#  - Si la versión de package.json es nueva (no hay un release con ese número), se publica en «Releases»
+#    y todos los Compass instalados la reciben solos (Ajustes > Actualizaciones).
+name: build
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 20 }
+      - name: ¿Versión nueva?
+        id: ver
+        shell: bash
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}" }
+        run: |
+          V=$(node -p "require('./package.json').version")
+          echo "version=$V" >> "$GITHUB_OUTPUT"
+          if gh release view "v$V" >/dev/null 2>&1; then echo "nueva=no" >> "$GITHUB_OUTPUT"; else echo "nueva=si" >> "$GITHUB_OUTPUT"; fi
+      - run: npm install
+      - name: Crear y publicar la versión
+        if: steps.ver.outputs.nueva == 'si'
+        run: npm run release
+        env: { GH_TOKEN: "${{ secrets.GITHUB_TOKEN }}", CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+      - name: Solo crear (la versión ya estaba publicada)
+        if: steps.ver.outputs.nueva == 'no'
+        run: npm run dist
+        env: { CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+      - uses: actions/upload-artifact@v4
+        with: { name: CompassLauncher-${{ steps.ver.outputs.version }}, path: dist/*.exe }
