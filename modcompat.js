@@ -89,9 +89,64 @@ function metaFromZip(zip, depth = 0) {
   }
   return m;
 }
+// ---------- Forge y NeoForge: META-INF/neoforge.mods.toml o META-INF/mods.toml ----------
+// Solo lo que hace falta: id, nombre, versión y las dependencias obligatorias (sin mirar rangos de versión,
+// que van en formato Maven: así un mod que falta se instala solo en vez de que el servidor no arranque).
+const SKIP_DEP = new Set(['minecraft', 'forge', 'neoforge', 'java', 'fml', 'javafml']);
+function parseToml(txt) {   // [[mods]] y [[dependencies.x]]: tablas con clave = valor (sin anidar)
+  const out = []; let cur = null, ml = null;
+  for (const raw of String(txt).split(/\r?\n/)) {
+    if (ml) { if (raw.includes(ml)) ml = null; continue; }
+    const l = raw.replace(/^\s+/, '');
+    if (!l || l.startsWith('#')) continue;
+    let m;
+    if ((m = /^\[\[\s*([\w.\-"]+)\s*\]\]/.exec(l))) { cur = { _t: m[1].replace(/"/g, '') }; out.push(cur); continue; }
+    if (/^\[/.test(l)) { cur = { _t: l.replace(/[\[\]\s"]/g, '') }; out.push(cur); continue; }
+    if ((m = /^([\w.\-]+)\s*=\s*(.*)$/.exec(l))) {
+      let v = m[2].trim();
+      const tq = /^('''|""")/.exec(v); if (tq) { if (v.slice(3).indexOf(tq[1]) < 0) ml = tq[1]; continue; }
+      const q = /^"((?:[^"\\]|\\.)*)"|^'([^']*)'/.exec(v);
+      v = q ? (q[1] ?? q[2]) : v.replace(/\s+#.*$/, '');
+      if (cur) cur[m[1]] = v; else (out[0] = out[0] || { _t: '' })[m[1]] = v;
+    }
+  }
+  return out;
+}
+function forgeMetaFromZip(zip, depth = 0) {
+  const AdmZip = require('adm-zip');
+  const e = zip.getEntry('META-INF/neoforge.mods.toml') || zip.getEntry('META-INF/mods.toml');
+  if (!e) return null;
+  let tabs; try { tabs = parseToml(e.getData().toString('utf8').replace(/^\uFEFF/, '')); } catch { return null; }
+  const mods = tabs.filter(t => t._t === 'mods' && t.modId);
+  if (!mods.length) return null;
+  let jarVer = '0';
+  try { const mf = zip.getEntry('META-INF/MANIFEST.MF'); const m = mf && /Implementation-Version:\s*(\S+)/.exec(mf.getData().toString('utf8')); if (m) jarVer = m[1]; } catch {}
+  const first = mods[0], ver = v => (!v || /\$\{/.test(v)) ? jarVer : v;
+  const depends = {};
+  for (const t of tabs) {
+    if (!/^dependencies\./.test(t._t) || !t.modId || SKIP_DEP.has(t.modId)) continue;
+    const req = t.type ? t.type === 'required' : t.mandatory === 'true';
+    const side = String(t.side || 'BOTH').toUpperCase();
+    if (req && side === 'BOTH') depends[t.modId] = '*';
+  }
+  for (const m of mods) delete depends[m.modId];
+  const meta = { id: String(first.modId), name: String(first.displayName || first.modId), version: ver(first.version), env: '*', depends, breaks: {},
+    provides: mods.slice(1).map(m => String(m.modId)), nested: [], loader: 'forge' };
+  if (depth < 2) {   // jars dentro del jar (Jar-in-Jar): META-INF/jarjar/metadata.json
+    try {
+      const md = zip.getEntry('META-INF/jarjar/metadata.json');
+      for (const j of md ? (JSON.parse(md.getData().toString('utf8')).jars || []) : []) {
+        const ent = j.path && zip.getEntry(j.path); if (!ent) continue;
+        const sub = forgeMetaFromZip(new AdmZip(ent.getData()), depth + 1); if (sub) meta.nested.push(sub);
+      }
+    } catch {}
+  }
+  return meta;
+}
 function readMeta(file) {
   const AdmZip = require('adm-zip');
-  return metaFromZip(new AdmZip(file));
+  const z = new AdmZip(file);
+  return metaFromZip(z) || forgeMetaFromZip(z);
 }
 
 // ---------- comprobación ----------
@@ -105,7 +160,9 @@ const ref = (m, file) => ({ id: m.id, name: m.name, version: m.version, file });
 // mods: [{ file, meta }]  ·  ctx: { mc, loader?, env: 'client' | 'server' }
 function check(mods, ctx) {
   const issues = [];
-  const loaded = mods.filter(m => m.meta && envOk(m.meta.env, ctx.env));
+  // solo los mods del cargador de este perfil/servidor (un .jar de Forge en un perfil de Fabric no cuenta, y al revés)
+  const fam = ctx.fam || 'fabric';
+  const loaded = mods.filter(m => m.meta && (m.meta.loader || 'fabric') === fam && envOk(m.meta.env, ctx.env));
   const idx = new Map(), seen = new Map();
   const add = (id, meta, file) => { if (!idx.has(id)) idx.set(id, ref(meta, file)); };
 
@@ -151,4 +208,4 @@ function check(mods, ctx) {
   return issues;
 }
 
-module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN };
+module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN, parseToml };

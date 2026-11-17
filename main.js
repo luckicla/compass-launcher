@@ -68,7 +68,7 @@ function tgt(t) {   // {kind, id} → carpeta de mods, versión y entorno
   return { kind: 'profile', id: p.id, name: p.name, mc: p.mc, dir: pdir(p), mods: path.join(pdir(p), 'mods'), env: 'client', loader: isForgeL(p.loader) ? p.loader : 'fabric' };
 }
 const okIcon = d => typeof d === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(d) && d.length < 400 * 1024;
-const ctxOf = t => ({ mc: t.mc, loader: (cfg().fabric[t.mc] || {}).loader, env: t.env });
+const ctxOf = t => ({ mc: t.mc, loader: (cfg().fabric[t.mc] || {}).loader, env: t.env, fam: isForgeL(t.loader) ? 'forge' : 'fabric' });
 
 function migrate() {   // pasa la configuración antigua (una sola instancia) al modelo de perfiles + servidores
   const c = cfg();
@@ -371,10 +371,12 @@ async function safeMrInstall(idOrSlug, t, force) {
 // ---------- dependencias: leer lo que pide cada mod (fabric.mod.json) y bajarlo solo ----------
 // El id de un mod no siempre coincide con su nombre en Modrinth, así que se prueban varios
 // candidatos y se comprueba DENTRO del .jar descargado que de verdad es el mod que se pide.
-const DEP_ALIAS = { fabric: 'fabric-api', 'cloth-config2': 'cloth-config', cloth_config: 'cloth-config', architectury: 'architectury-api',
+const DEP_ALIAS = { mts: 'immersive-vehicles', fabric: 'fabric-api', 'cloth-config2': 'cloth-config', cloth_config: 'cloth-config', architectury: 'architectury-api',
   yet_another_config_lib_v3: 'yacl', yet_another_config_lib: 'yacl', owo: 'owo-lib', geckolib3: 'geckolib', forgeconfigapiport: 'forge-config-api-port',
   puzzleslib: 'puzzles-lib', resourcefullib: 'resourceful-lib', 'cardinal-components': 'cardinal-components-api', placeholder_api: 'placeholder-api',
   'collective': 'collective', 'kotlinforforge': 'kotlin-for-forge', fzzy_config: 'fzzy-config', sodium: 'sodium', iris: 'iris', lithium: 'lithium' };
+// nombre con el que buscar una dependencia cuando su id no se parece al del mod
+const DEP_QUERY = { mts: 'Immersive Vehicles' };
 const depCandidates = dep => {
   const l = [DEP_ALIAS[dep], /^fabric(-|_)/.test(dep) && !/kotlin|language/.test(dep) ? 'fabric-api' : null, dep, dep.replace(/_/g, '-')];
   return [...new Set(l.filter(Boolean))];
@@ -400,11 +402,22 @@ async function installDep(dep, t) {   // true si ha instalado algo que da «dep�
     } catch { return false; } finally { try { fs.unlinkSync(tf); } catch {} }
   };
   for (const c of depCandidates(dep)) if (await tryProj(c)) return true;
+  const q = DEP_QUERY[dep] || dep.replace(/[-_]/g, ' ');
   try {   // último recurso: buscarlo por nombre en Modrinth
     const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(t.mc, t.loader)}`], [`versions:${t.mc}`]]);
-    const r = await J(`${MR}/search?query=${enc(dep.replace(/[-_]/g, ' '))}&facets=${enc(facets)}&limit=5`);
+    const r = await J(`${MR}/search?query=${enc(q)}&facets=${enc(facets)}&limit=5`);
     for (const h of r.hits || []) if (await tryProj(h.project_id)) return true;
   } catch {}
+  if (cfg().cfKey) try {   // y en CurseForge (muchos mods de Forge solo están ahí)
+    const r = await cfSearch(t, q, 'relevance', 0);
+    for (const h of (r.items || []).slice(0, 4)) {
+      const before = new Set(fs.readdirSync(t.mods));
+      try { await cfInstall(h.id, t); } catch { continue; }
+      const added = fs.readdirSync(t.mods).filter(f => !before.has(f) && /\.jar$/i.test(f));
+      if (added.some(f => metaHas(metaOf(path.join(t.mods, f), 'cf:' + f + fs.statSync(path.join(t.mods, f)).size), dep))) { log(`Dependencia «${dep}» → CurseForge ${h.title}`); return true; }
+      for (const f of added) try { fs.unlinkSync(path.join(t.mods, f)); } catch {}
+    }
+  } catch (e) { log('CurseForge: ' + e.message); }
   return false;
 }
 async function resolveDeps(t, quiet) {   // instala todo lo que falte, aunque una dependencia pida otra
