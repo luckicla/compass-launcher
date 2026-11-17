@@ -162,8 +162,8 @@ async function dl(u, f, label, tries = 3, want = null) {
       // want: sha1 (texto) o { sha256 }. Si el servidor da la huella y cuadra, el archivo es el bueno y no hace falta mirar el zip por dentro
       // (algunos .jar legítimos, como el Paper de la 1.16.5, no pasaban esa comprobación y se daban por dañados)
       const [algo, hash] = !want ? [] : typeof want === 'string' ? ['sha1', want] : want.sha256 ? ['sha256', want.sha256] : want.sha1 ? ['sha1', want.sha1] : [];
-      if (hash && crypto.createHash(algo).update(fs.readFileSync(f + '.part')).digest('hex') !== String(hash).toLowerCase()) throw new Error('Descarga dañada: ' + path.basename(f));
-      if (!hash && /\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
+      if (hash) { const got = crypto.createHash(algo).update(fs.readFileSync(f + '.part')).digest('hex'); if (got !== String(hash).toLowerCase()) { log(`${path.basename(f)}: ${algo} ${got} en vez de ${hash} (${fs.statSync(f + '.part').size} bytes, ${u})`); throw new Error('Descarga dañada: ' + path.basename(f)); } }
+      if (!hash && /\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipGood(fs.readFileSync(f + '.part'), path.basename(f))) throw new Error('Descarga dañada: ' + path.basename(f));
       fs.renameSync(f + '.part', f);
       return;
     } catch (e) {
@@ -205,13 +205,17 @@ function zipOk(b, depth = 0) {
     return true;
   } catch { return false; }
 }
+// Segunda opinión con adm-zip: si nuestra comprobación rechaza un .jar pero adm-zip lo lee entero (con sus CRC), se da por bueno.
+// Así un fallo de zipOk con algún formato raro de .jar no vuelve a bloquear descargas buenas ni a borrar mods buenos.
+function admOk(b) { try { const z = new AdmZip(b); for (const e of z.getEntries()) if (!e.isDirectory) e.getData(); return true; } catch { return false; } }
+function zipGood(b, name) { if (zipOk(b)) return true; const ok = admOk(b); log(`Comprobación de ${name || 'zip'}: zipOk no, adm-zip ${ok ? 'sí (se da por bueno)' : 'tampoco'}`); return ok; }
 let jarOkCache = null, jarOkDirty = false;   // archivos ya comprobados (se guarda en disco para no repetirlo en cada partida)
 function jarOk(f) {
   try {
     if (!jarOkCache) { try { jarOkCache = new Map(Object.entries(JSON.parse(fs.readFileSync(path.join(U(), 'jars-ok.json'), 'utf8')))); } catch { jarOkCache = new Map(); } }
     const st = fs.statSync(f), k = f + '|' + st.size + '|' + Math.round(st.mtimeMs);
     if (jarOkCache.has(k)) return true;
-    const ok = zipOk(fs.readFileSync(f));
+    const ok = zipGood(fs.readFileSync(f), path.basename(f));
     if (ok) { jarOkCache.set(k, 1); if (!jarOkDirty) { jarOkDirty = true; setTimeout(() => { jarOkDirty = false; try { fs.writeFileSync(path.join(U(), 'jars-ok.json'), JSON.stringify(Object.fromEntries([...jarOkCache].slice(-3000)))); } catch {} }, 3000); } }
     return ok;
   } catch { return false; }
@@ -600,7 +604,7 @@ async function installPlugin(s, pid, done = new Set()) {   // instala un plugin 
   if (!v) { const all = await J(`${MR}/project/${enc(pid)}/version?loaders=${enc(JSON.stringify(PLUGIN_LOADERS))}`).catch(() => []); v = pickVer(all || []); if (v) log(`Plugin ${pid}: no marca Minecraft ${s.mc}, uso la última (${v.version_number})`); }
   if (!v) throw new Error('Ese plugin no tiene versión para Paper');
   const f = primary(v), d = pluginsDir(s); fs.mkdirSync(d, { recursive: true });
-  await dl(f.url, path.join(d, f.filename), 'Instalando ' + f.filename);
+  await dl(f.url, path.join(d, f.filename), 'Instalando ' + f.filename, 3, f.hashes && f.hashes.sha1);
   let proj = {}; try { proj = await J(`${MR}/project/${enc(v.project_id)}`); } catch {}
   storeRec(sdir(s), v.project_id, { file: f.filename, kind: 'plugin', title: proj.title, icon: proj.icon_url, desc: proj.description, ver: v.version_number });
   for (const dep of v.dependencies || []) if (dep.dependency_type === 'required' && dep.project_id) { try { await installPlugin(s, dep.project_id, done); } catch (e) { log('Dependencia de plugin omitida: ' + e.message); } }
@@ -669,7 +673,7 @@ async function kindInstall(t, kind, pid) {
     return { serverPack: true };
   }
   const d = path.join(t.dir, KIND_DIR[kind]); fs.mkdirSync(d, { recursive: true });
-  await dl(f.url, path.join(d, f.filename), 'Descargando ' + f.filename);
+  await dl(f.url, path.join(d, f.filename), 'Descargando ' + f.filename, 3, f.hashes && f.hashes.sha1);
   storeRec(t.dir, pid, { file: f.filename, kind, title: proj.title, icon: proj.icon_url, ver: v.version_number });
   let extra = null;
   if (kind === 'shader' && t.kind === 'profile') {   // los shaders necesitan Iris (y Sodium)
