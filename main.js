@@ -34,7 +34,12 @@ const DEFAULTS = { ram: '4G', profiles: [], servers: [], active: null, fabric: {
 // ---------- configuración (un solo objeto en memoria, guardado atómico) ----------
 let CFG = null;
 function cfg() {
-  if (!CFG) { try { CFG = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFGF(), 'utf8')) }; } catch { CFG = { ...DEFAULTS, profiles: [], servers: [], fabric: {} }; } }
+  if (!CFG) {
+    for (const f of [CFGF(), CFGF() + '.bak']) {   // si config.json estuviera dañado, se usa la última copia buena
+      try { CFG = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(f, 'utf8')) }; if (f !== CFGF()) console.log('config.json dañado: uso la copia'); break; } catch {}
+    }
+    if (!CFG) CFG = { ...DEFAULTS, profiles: [], servers: [], fabric: {} };
+  }
   return CFG;
 }
 function save() {
@@ -42,7 +47,10 @@ function save() {
   const tmp = CFGF() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cfg(), null, 2));
   fs.renameSync(tmp, CFGF());
+  try { const b = CFGF() + '.bak'; if (!fs.existsSync(b) || Date.now() - fs.statSync(b).mtimeMs > 10 * 60e3) fs.copyFileSync(CFGF(), b); } catch {}
 }
+// escribir un archivo sin dejarlo a medias si Compass se cierra justo en ese momento
+function writeSafe(f, data) { const tmp = f + '.tmp'; fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
 const prof = id => cfg().profiles.find(p => p.id === id);
 const srv = id => cfg().servers.find(s => s.id === id);
 const pdir = p => path.join(U(), p.dir);
@@ -149,7 +157,7 @@ async function dl(u, f, label, tries = 3, want = null) {
       await pipeline(rs, fs.createWriteStream(f + '.part'));
       if (total && fs.statSync(f + '.part').size !== total) throw new Error('Descarga cortada: ' + path.basename(f));
       if (want && crypto.createHash('sha1').update(fs.readFileSync(f + '.part')).digest('hex') !== want) throw new Error('Descarga dañada: ' + path.basename(f));
-      if (/\.jar$/i.test(f) && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
+      if (/\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
       fs.renameSync(f + '.part', f);
       return;
     } catch (e) {
@@ -169,12 +177,15 @@ function zipOk(b, depth = 0) {
   try {
     let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) if (b.readUInt32LE(i) === 0x06054b50) { e = i; break; }
     if (e < 0) return false;
-    const n = b.readUInt16LE(e + 10); let p = b.readUInt32LE(e + 16);
+    const n = b.readUInt16LE(e + 10), cds = b.readUInt32LE(e + 12); let p = b.readUInt32LE(e + 16);
     if (p === 0xffffffff || n === 0xffff) return true;   // zip64: no se comprueba
+    let shift = 0;   // zips con algo delante (autoextraíbles): el directorio está desplazado
+    if ((p + 4 > b.length || b.readUInt32LE(p) !== 0x02014b50) && e - cds >= 0 && b.readUInt32LE(e - cds) === 0x02014b50) shift = e - cds - p;
+    p += shift;
     for (let k = 0; k < n; k++) {
       if (b.readUInt32LE(p) !== 0x02014b50) return false;
       const meth = b.readUInt16LE(p + 10), crc = b.readUInt32LE(p + 16), cs = b.readUInt32LE(p + 20), us = b.readUInt32LE(p + 24);
-      const nl = b.readUInt16LE(p + 28), el = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32), lo = b.readUInt32LE(p + 42), name = b.toString('utf8', p + 46, p + 46 + nl);
+      const nl = b.readUInt16LE(p + 28), el = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32), lo = b.readUInt32LE(p + 42) + shift, name = b.toString('utf8', p + 46, p + 46 + nl);
       p += 46 + nl + el + cl;
       if (name.endsWith('/') || !us) continue;
       if (b.readUInt32LE(lo) !== 0x04034b50) return false;
@@ -231,7 +242,7 @@ const runCmd = (cmd, args) => new Promise((res, rej) => {
 const MCF = () => path.join(U(), 'modcache.json');
 let modCache = null;
 const mcache = () => modCache || (modCache = (() => { try { return JSON.parse(fs.readFileSync(MCF(), 'utf8')); } catch { return {}; } })());
-const saveMcache = () => { try { fs.writeFileSync(MCF(), JSON.stringify(modCache)); } catch {} };
+const saveMcache = () => { try { writeSafe(MCF(), JSON.stringify(modCache)); } catch {} };
 const isMod = f => /\.jar(\.disabled)?$/.test(f);
 const metaCache = new Map();
 function metaOf(file, sha) {
@@ -517,7 +528,7 @@ async function paperJar(s, dir) {
   } catch (e) { log('Paper (fill): ' + e.message); }
   let r;   // API antigua (v2)
   try { r = await J(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds`); }
-  catch { throw new Error(`Paper todavía no tiene Minecraft ${v}. Elige otra versión en Ajustes del servidor o usa Fabric.`); }
+  catch { const pv = await paperVersions(); throw new Error(`Paper no tiene Minecraft ${v}.` + (pv.length ? ` Las más nuevas que sí: ${pv.slice(-6).reverse().join(', ')}.` : '') + ' Cámbiala en Ajustes del servidor.'); }
   const builds = r.builds || [], b = builds.filter(x => x.channel === 'default').pop() || builds.pop();
   if (!b) throw new Error(`Paper todavía no tiene Minecraft ${v}.`);
   const name = b.downloads.application.name, jar = path.join(dir, `paper-${v}-${b.build}.jar`);
@@ -1345,7 +1356,7 @@ const jtxt = t => JSON.stringify(String(t)).replace(/[^\x00-\x7f]/g, c => '\\u' 
 const chat = (who, text, color = 'white') => srvCmd(`tellraw ${who} {"text":${jtxt(text)},"color":"${/^[a-z_]+$/.test(color) ? color : 'white'}"}`);
 const tpFile = s => path.join(sdir(s), 'compass-tp.json');
 const tpList = s => { try { return JSON.parse(fs.readFileSync(tpFile(s), 'utf8')).filter(x => x && x.name); } catch { return []; } };
-const tpSave = (s, l) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(tpFile(s), JSON.stringify(l, null, 2)); };
+const tpSave = (s, l) => { fs.mkdirSync(sdir(s), { recursive: true }); writeSafe(tpFile(s), JSON.stringify(l, null, 2)); };
 const tpHas = (s, n) => tpList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
 const COORD = /^~?-?\d+(\.\d+)?$|^~$/;
 // ---------- comandos con «!» en el chat (los gestiona Compass leyendo la consola) ----------
@@ -1367,14 +1378,14 @@ function cmdsClean(c) {
 }
 const homesFile = s => path.join(sdir(s), 'compass-homes.json');
 const homesAll = s => { try { return JSON.parse(fs.readFileSync(homesFile(s), 'utf8')) || {}; } catch { return {}; } };
-const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(homesFile(s), JSON.stringify(h, null, 2)); };
+const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); writeSafe(homesFile(s), JSON.stringify(h, null, 2)); };
 // Mod «Compass: comandos» (mod/): los mismos comandos con «/» y autocompletado en servidores Fabric 1.20 – 1.21.x y 26.1.
 // El mod solo registra los comandos y avisa por la consola con una clave; lo demás lo hace chatCmd, igual que con «!».
 const CMD_MOD = 'compass-comandos.jar';
 // qué archivo va con cada servidor: plugin en Paper/Arclight (1.20 o más nuevo), mod en Fabric 1.20 – 1.21.x y 26.1
 const cmdModFile = mc => /^1\.(20|21)(\.|$)/.test(mc) ? 'compass-comandos-1.20.jar' : /^26\.1(\.|$)/.test(mc) ? 'compass-comandos-26.1.jar' : null;
 const cmdPluginOk = mc => /^1\.(2\d)(\.|$)/.test(mc) || /^2\d\.\d/.test(mc);
-const cmdKind = s => { const t = s.type || 'fabric'; return t === 'paper' || t === 'hybrid' ? (cmdPluginOk(s.mc) ? 'plugin' : null) : t === 'fabric' && cmdModFile(s.mc) ? 'mod' : null; };
+const cmdKind = s => { const t = s.type || 'fabric'; if (t === 'hybrid' && s.hybridVia === 'cardboard' && cmdModFile(s.mc)) return 'mod'; return t === 'paper' || t === 'hybrid' ? (cmdPluginOk(s.mc) ? 'plugin' : null) : t === 'fabric' && cmdModFile(s.mc) ? 'mod' : null; };
 // el .jar va dentro de Compass; si faltara, se baja del release de GitHub de esta versión (o del último)
 async function cmdModSrc(f) {
   const local = [path.join(process.resourcesPath || '', 'mod', f), path.join(__dirname, 'modjars', f)].find(x => { try { return fs.statSync(x).isFile(); } catch { return false; } });
@@ -1630,31 +1641,84 @@ async function arclightBuilds() {
   cfg().arcVersions = [...new Set(list.map(x => x.mc))]; save();
   return list;
 }
+// versiones que tiene Paper (API Fill v3)
+let paperCache = null;
+async function paperVersions() {
+  if (paperCache && Date.now() - paperCache.t < 6 * 3600e3) return paperCache.list;
+  try {
+    const r = await J('https://fill.papermc.io/v3/projects/paper');
+    const v = r && r.versions, list = Array.isArray(v) ? v.map(x => x.version || x.id || x).filter(x => typeof x === 'string') : Object.values(v || {}).flat().filter(x => typeof x === 'string');
+    if (list.length) { paperCache = { t: Date.now(), list: list.sort(verCmp) }; cfg().paperVersions = paperCache.list; save(); return paperCache.list; }
+  } catch (e) { log('Versiones de Paper: ' + e.message); }
+  return (cfg().paperVersions || []).slice();
+}
+// «Mods + plugins»: Arclight (servidor propio) o, si no existe para esa versión, Fabric + Cardboard (un mod que carga plugins)
+let cbCache = null;
+async function cardboardVersions() {
+  if (cbCache && Date.now() - cbCache.t < 6 * 3600e3) return cbCache.list;
+  try {
+    const p = await J(`${MR}/project/cardboard`), list = (p.game_versions || []).filter(v => /^\d+\.\d+(\.\d+)?$/.test(v));
+    cbCache = { t: Date.now(), list }; cfg().cbVersions = list; save(); return list;
+  } catch (e) { log('Versiones de Cardboard: ' + e.message); return (cfg().cbVersions || []).slice(); }
+}
 async function hybridVersions() {
-  try { return [...new Set((await arclightBuilds()).map(x => x.mc))].sort(verCmp); }
-  catch { return (cfg().arcVersions || ['1.21.1', '1.20.4']).slice().sort(verCmp); }
+  let arc = [];
+  try { arc = (await arclightBuilds()).map(x => x.mc); } catch { arc = cfg().arcVersions || ['1.21.1', '1.20.4']; }
+  return [...new Set([...arc, ...await cardboardVersions()])].sort(verCmp);
 }
 async function hybridJar(s, dir) {
-  const all = await arclightBuilds(), list = all.filter(x => x.mc === s.mc);
-  if (!list.length) throw new Error(`«Mods + plugins» no existe para Minecraft ${s.mc}. Hay: ${[...new Set(all.map(x => x.mc))].sort(verCmp).join(', ')}. Cámbiala en Ajustes del servidor.`);
+  let all = []; try { all = await arclightBuilds(); } catch (e) { log('Arclight: ' + e.message); }
+  const list = all.filter(x => x.mc === s.mc);
+  if (!list.length) return null;
   const b = list.find(x => !x.pre) || list[0], jar = path.join(dir, b.name);
   if (!fs.existsSync(jar)) await dl(b.url, jar, 'Descargando Arclight ' + s.mc);
   return jar;
 }
-
-async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric o Arclight
+async function fabricServerJar(s, dir) {
   let jar;
+  try {
+    const lv = await fabricLoader(s.mc);
+    const iv = (await J('https://meta.fabricmc.net/v2/versions/installer')).find(i => i.stable).version;
+    jar = path.join(dir, `fabric-${s.mc}-${lv}.jar`);
+    if (!fs.existsSync(jar)) await dl(`https://meta.fabricmc.net/v2/versions/loader/${s.mc}/${lv}/${iv}/server/jar`, jar, 'Descargando servidor Fabric');
+    for (const f of fs.readdirSync(dir)) if (/^fabric-.*\.jar$/.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
+  } catch (e) {
+    const old = fs.readdirSync(dir).find(f => f.startsWith('fabric-' + s.mc) && f.endsWith('.jar'));
+    if (!old) throw e;
+    log('Sin red para Fabric, uso ' + old); jar = path.join(dir, old);
+  }
+  return jar;
+}
+const isCardboard = f => /^cardboard/i.test(f);
+
+async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric, Arclight o Fabric + Cardboard
+  let jar;
+  const sv = srv(s.id) || s, mods = path.join(dir, 'mods');
   if (s.type === 'hybrid') {
-    note('Preparando mods + plugins (Arclight) ' + s.mc + ' …');
-    fs.mkdirSync(path.join(dir, 'plugins'), { recursive: true }); fs.mkdirSync(path.join(dir, 'mods'), { recursive: true });
-    try {
-      jar = await hybridJar(s, dir);
+    note('Preparando mods + plugins ' + s.mc + ' …');
+    fs.mkdirSync(path.join(dir, 'plugins'), { recursive: true }); fs.mkdirSync(mods, { recursive: true });
+    try { jar = await hybridJar(s, dir); }
+    catch (e) { const old = fs.readdirSync(dir).find(f => /^arclight-fabric-.*\.jar$/i.test(f) && f.includes('-' + s.mc + '-')); if (old) { log('Sin red para Arclight, uso ' + old); jar = path.join(dir, old); } }
+    if (jar) {   // Arclight ya carga plugins: Cardboard sobra
       for (const f of fs.readdirSync(dir)) if (/^arclight-.*\.jar$/i.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
-    } catch (e) {
-      const old = fs.readdirSync(dir).find(f => /^arclight-fabric-.*\.jar$/i.test(f) && f.includes('-' + s.mc + '-'));
-      if (!old) throw e;
-      log('Sin red para Arclight, uso ' + old); jar = path.join(dir, old);
+      for (const f of fs.readdirSync(mods)) if (isCardboard(f)) try { fs.unlinkSync(path.join(mods, f)); } catch {}
+      if (sv.hybridVia !== 'arclight') { sv.hybridVia = 'arclight'; save(); }
+      return jar;
     }
+    // sin Arclight para esta versión: servidor Fabric normal con Cardboard
+    const cb = await cardboardVersions();
+    if (!cb.includes(s.mc)) {
+      const all = await hybridVersions();
+      throw new Error(`«Mods + plugins» no existe para Minecraft ${s.mc}. Versiones que sí: ${all.join(', ')}. Cámbiala en Ajustes del servidor.`);
+    }
+    note('Preparando Fabric + Cardboard ' + s.mc + ' …');
+    jar = await fabricServerJar(s, dir);
+    for (const f of fs.readdirSync(dir)) if (/^arclight-.*\.jar$/i.test(f)) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
+    if (!fs.readdirSync(mods).some(isCardboard)) {
+      note('Instalando Cardboard (plugins en Fabric)…');
+      await mrInstall('cardboard', tgt({ kind: 'server', id: s.id }));
+    }
+    if (sv.hybridVia !== 'cardboard') { sv.hybridVia = 'cardboard'; save(); }
     return jar;
   }
   if (s.type === 'paper') {
@@ -1668,21 +1732,10 @@ async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) 
       if (!old) throw e;
       log('Sin red para Paper, uso ' + old); jar = path.join(dir, old);
     }
-  } else {
+    return jar;
+  }
   note('Preparando Fabric ' + s.mc + ' …');
-  try {
-    const lv = await fabricLoader(s.mc);
-    const iv = (await J('https://meta.fabricmc.net/v2/versions/installer')).find(i => i.stable).version;
-    jar = path.join(dir, `fabric-${s.mc}-${lv}.jar`);
-    if (!fs.existsSync(jar)) await dl(`https://meta.fabricmc.net/v2/versions/loader/${s.mc}/${lv}/${iv}/server/jar`, jar, 'Descargando servidor Fabric');
-    for (const f of fs.readdirSync(dir)) if (/^fabric-.*\.jar$/.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
-  } catch (e) {
-    const old = fs.readdirSync(dir).find(f => f.startsWith('fabric-' + s.mc) && f.endsWith('.jar'));
-    if (!old) throw e;
-    log('Sin red para Fabric, uso ' + old); jar = path.join(dir, old);
-  }
-  }
-  return jar;
+  return fabricServerJar(s, dir);
 }
 
 // ---------- 24/7, Nether/End cerrados al momento y tareas programadas ----------
@@ -2026,7 +2079,7 @@ async function syncFriend(p, silent) {
   });
   p.managed = [...new Set([...want.keys(), ...Object.values(alt)])]; try { await dropDupes(dir, p.managed); } catch {}
   p.mc = m.mc; p.server = game; p.compass = true; p.canWorld = !!m.world;
-  await ensureFabric(p.mc);
+  try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
   fs.writeFileSync(path.join(pdir(p), 'servers.dat'), serversDat([[p.name, game, p.icon]]));
   save(); prog('', 0);
   if (from.tienda || from.anfitrion) log(`Mods: ${from.tienda} de la tienda, ${from.anfitrion} del anfitrión, ${similar.length} parecidos, ${failed.length} sin conseguir`);
@@ -2606,6 +2659,7 @@ const H = {
   resync: async id => { const p = prof(id); if (!p || p.kind !== 'friend') throw new Error('Este perfil no es de un amigo'); const r = p.own ? await syncOwn(p) : await syncFriend(p, false); return { ...r, note: syncNote(r) }; },
   ownProfile: async sid => ownProfile(sid).id,
   hybridVersions: async () => hybridVersions(),
+  paperVersions: async () => paperVersions(),
 
   // ----- servidores -----
   serverAdd: async ({ name, mc, ram, type }) => {
@@ -2897,7 +2951,7 @@ function worldDirOf(ref) {   // ref: { kind: 'server', id, world? } | { kind: 'l
   const s = srv(ref.id); if (!s) throw new Error('Servidor no encontrado');
   return path.join(sdir(s), path.basename(ref.world || levelName(s)));
 }
-const mapCacheDir = wd => path.join(U(), 'mapcache', crypto.createHash('sha1').update(wd).digest('hex').slice(0, 16));
+const mapCacheDir = wd => path.join(U(), 'mapcache', crypto.createHash('sha1').update('v2|' + wd).digest('hex').slice(0, 16));   // v2: colores de bioma
 const tileJobs = new Map();
 async function tile(wd, x, z) {   // PNG (y alturas) de una región, con caché por fecha de modificación
   const src = path.join(WM.regionDir(wd), `r.${x}.${z}.mca`), cd = mapCacheDir(wd), png = path.join(cd, `r.${x}.${z}.png`), hf = path.join(cd, `r.${x}.${z}.h`);
@@ -2941,7 +2995,7 @@ function applyPendingSpawn(s) {
 // ---------- permisos: ops, lista blanca y baneos ----------
 const NAME_RE = /^[A-Za-z0-9_]{2,16}$/, IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 const jread = (f, d = []) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
-const jwrite = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+const jwrite = (f, v) => writeSafe(f, JSON.stringify(v, null, 2));
 const dashed = h => h.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 const mcDate = () => { const d = new Date(), z = n => String(n).padStart(2, '0'), o = -d.getTimezoneOffset();
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())} ${o >= 0 ? '+' : '-'}${z(Math.abs(o) / 60 | 0)}${z(Math.abs(o) % 60)}`; };

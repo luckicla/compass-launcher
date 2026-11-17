@@ -70,14 +70,40 @@ const KW = [
   [/brick/, [130, 110, 105]], [/ore$/, [125, 125, 125]], [/_flower|tulip|poppy|dandelion|orchid|allium|bluet|daisy|cornflower|lily_of/, [109, 153, 63]],
   [/grass|fern|bush|sapling|vine|roots|sprouts/, [100, 145, 60]], [/mushroom/, [150, 110, 90]], [/copper/, [190, 110, 80]], [/rail/, [120, 110, 100]],
 ];
+// colores de cada bioma como en el juego: hierba, hojas y agua (hex)
+const BIOME = {
+  plains: [0x91bd59, 0x77ab2f, 0x3f76e4], sunflower_plains: [0x91bd59, 0x77ab2f, 0x3f76e4], beach: [0x91bd59, 0x77ab2f, 0x3f76e4],
+  forest: [0x79c05a, 0x59ae30, 0x3f76e4], flower_forest: [0x79c05a, 0x59ae30, 0x3f76e4], birch_forest: [0x88bb67, 0x6ba941, 0x3f76e4], old_growth_birch_forest: [0x88bb67, 0x6ba941, 0x3f76e4],
+  dark_forest: [0x507a32, 0x59ae30, 0x3f76e4], pale_garden: [0x778272, 0x878d76, 0x76889d],
+  taiga: [0x86b783, 0x68a464, 0x287082], old_growth_pine_taiga: [0x86b87f, 0x68a55f, 0x3f76e4], old_growth_spruce_taiga: [0x86b783, 0x68a464, 0x3f76e4],
+  snowy_taiga: [0x80b497, 0x60a17b, 0x3d57d6], snowy_plains: [0x80b497, 0x60a17b, 0x3d57d6], ice_spikes: [0x80b497, 0x60a17b, 0x3d57d6], snowy_beach: [0x83b593, 0x64a278, 0x3d57d6],
+  grove: [0x80b497, 0x60a17b, 0x3d57d6], snowy_slopes: [0x80b497, 0x60a17b, 0x3d57d6], frozen_peaks: [0x80b497, 0x60a17b, 0x3d57d6], jagged_peaks: [0x80b497, 0x60a17b, 0x3d57d6], stony_peaks: [0x9abe4b, 0x82ac1e, 0x3f76e4],
+  meadow: [0x83bb6d, 0x63a948, 0x0e4ecf], cherry_grove: [0xb6db61, 0xb6db61, 0x5db7ef],
+  windswept_hills: [0x8ab689, 0x6da36b, 0x3f76e4], windswept_gravelly_hills: [0x8ab689, 0x6da36b, 0x3f76e4], windswept_forest: [0x8ab689, 0x6da36b, 0x3f76e4], stony_shore: [0x8ab689, 0x6da36b, 0x3f76e4],
+  jungle: [0x59c93c, 0x30bb0b, 0x14a2c5], sparse_jungle: [0x64c73f, 0x3eb80f, 0x0d8ae3], bamboo_jungle: [0x59c93c, 0x30bb0b, 0x14a2c5],
+  savanna: [0xbfb755, 0xaea42a, 0x2c8b9c], savanna_plateau: [0xbfb755, 0xaea42a, 0x2590a8], windswept_savanna: [0xbfb755, 0xaea42a, 0x2590a8],
+  desert: [0xbfb755, 0xaea42a, 0x32a598], badlands: [0x90814d, 0x9e814d, 0x4e7f81], eroded_badlands: [0x90814d, 0x9e814d, 0x497f99], wooded_badlands: [0x90814d, 0x9e814d, 0x55809e],
+  swamp: [0x6a7039, 0x6a7039, 0x617b64], mangrove_swamp: [0x6a7039, 0x8db127, 0x3a7a6a], mushroom_fields: [0x55c93f, 0x2bbb0f, 0x8a8997],
+  river: [0x8db360, 0x71a74d, 0x3f76e4], frozen_river: [0x80b497, 0x60a17b, 0x3938c9],
+  ocean: [0x8db360, 0x71a74d, 0x3f76e4], deep_ocean: [0x8db360, 0x71a74d, 0x3f76e4], warm_ocean: [0x8db360, 0x71a74d, 0x43d5ee],
+  lukewarm_ocean: [0x8db360, 0x71a74d, 0x45adf2], deep_lukewarm_ocean: [0x8db360, 0x71a74d, 0x45adf2], cold_ocean: [0x8db360, 0x71a74d, 0x3d57d6], deep_cold_ocean: [0x8db360, 0x71a74d, 0x3d57d6],
+  frozen_ocean: [0x80b497, 0x60a17b, 0x3938c9], deep_frozen_ocean: [0x80b497, 0x60a17b, 0x3938c9],
+  dripstone_caves: [0x91bd59, 0x77ab2f, 0x3f76e4], lush_caves: [0x91bd59, 0x77ab2f, 0x3f76e4], deep_dark: [0x91bd59, 0x77ab2f, 0x3f76e4],
+};
+const BIOME0 = [0x91bd59, 0x77ab2f, 0x3f76e4];
+const rgb = h => [(h >> 16) & 255, (h >> 8) & 255, h & 255];
+const BIOME_RGB = new Map();
+const biomeRGB = name => { let v = BIOME_RGB.get(name); if (!v) { const b = BIOME[name] || BIOME0; v = b.map(rgb); BIOME_RGB.set(name, v); } return v; };
+const GRASSY = /^(grass_block|short_grass|grass|tall_grass|fern|large_fern|sugar_cane)$/;
+const LEAFY = /^(oak_leaves|jungle_leaves|acacia_leaves|dark_oak_leaves|mangrove_leaves|vine)$/;
 const WATERY = new Set(['water', 'kelp', 'kelp_plant', 'seagrass', 'tall_seagrass', 'bubble_column']);
 const AIR = new Set(['air', 'cave_air', 'void_air', 'light', 'structure_void', 'barrier']);
-const colorCache = new Map();
+const colorCache = new Map(), unknown = new Map();   // bloques sin color propio (para ir completando la tabla)
 function colorOf(name) {
   let c = colorCache.get(name); if (c) return c;
   c = C[name];
   if (!c) for (const [re, col] of KW) if (re.test(name)) { c = col; break; }
-  if (!c) c = [128, 124, 118];
+  if (!c) { c = [128, 124, 118]; unknown.set(name, (unknown.get(name) || 0) + 1); }
   colorCache.set(name, c); return c;
 }
 
@@ -112,12 +138,18 @@ async function renderRegion(file) {
       const bs = s.block_states, pal = bs ? bs.palette : s.Palette, data = bs ? bs.data : s.BlockStates;
       if (!pal || !pal.length) continue;
       const names = pal.map(p => String(p.Name || 'air').replace(/^minecraft:/, ''));
-      secs.set(s.Y, { names, get: names.length > 1 && data && data.longs ? packed(data, 4096) : null });
+      const bm = s.biomes, bpal = bm && bm.palette ? bm.palette.map(b => String(b).replace(/^minecraft:/, '')) : null;
+      secs.set(s.Y, { names, get: names.length > 1 && data && data.longs ? packed(data, 4096) : null,
+        bpal, bget: bpal && bpal.length > 1 && bm.data && bm.data.longs ? packed(bm.data, 64) : null });
       if (s.Y < minSec) minSec = s.Y;
     }
     if (minSec === Infinity) continue;
     const minY = minSec * 16, hm = packed(hmRaw, 256), of = hms.OCEAN_FLOOR && hms.OCEAN_FLOOR.longs ? packed(hms.OCEAN_FLOOR, 256) : null;
     const cx = (i & 31) * 16, cz = (i >> 5) * 16;
+    const biomeAt = (x, y, z) => {
+      const s = secs.get(Math.floor(y / 16)); if (!s || !s.bpal) return 'plains';
+      return s.bget ? (s.bpal[s.bget((((y & 15) >> 2) * 4 + (z >> 2)) * 4 + (x >> 2))] || 'plains') : s.bpal[0];
+    };
     const blockAt = (x, y, z) => {
       const s = secs.get(Math.floor(y / 16)); if (!s) return 'air';
       return s.get ? (s.names[s.get((((y & 15) * 16) + z) * 16 + x)] || 'air') : s.names[0];
@@ -130,7 +162,9 @@ async function renderRegion(file) {
       const p = (cz + z) * W + cx + x;
       H[p] = y;
       let c = colorOf(name);
-      if (WATERY.has(name)) { c = C.water; depth[p] = of ? Math.max(1, y - (minY + of(z * 16 + x) - 1)) : 4; }
+      if (WATERY.has(name)) { c = biomeRGB(biomeAt(x, y, z))[2]; depth[p] = of ? Math.max(1, y - (minY + of(z * 16 + x) - 1)) : 4; }
+      else if (GRASSY.test(name)) { const g = biomeRGB(biomeAt(x, y, z))[0]; c = [g[0] * .82, g[1] * .82, g[2] * .82]; }
+      else if (LEAFY.test(name)) { const f = biomeRGB(biomeAt(x, y, z))[1]; c = [f[0] * .78, f[1] * .78, f[2] * .78]; }
       rgba[p * 4] = c[0]; rgba[p * 4 + 1] = c[1]; rgba[p * 4 + 2] = c[2]; rgba[p * 4 + 3] = 255;
     }
   }
@@ -200,4 +234,4 @@ function dirSize(d, depth = 0) {
   return n;
 }
 
-module.exports = { regionDir, parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };
+module.exports = { unknown, regionDir, parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };

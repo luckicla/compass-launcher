@@ -1,0 +1,99 @@
+# Pruebas de cosas que no se pueden probar sin Minecraft: el mapa con mundos reales y el menú del juego con el mod.
+name: pruebas
+on:
+  push:
+    branches: [mod-test]
+  workflow_dispatch:
+jobs:
+  mapa:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mc: ["1.20.1", "1.21.4", "1.21.11", "26.1.2"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Generar un mundo ${{ matrix.mc }}
+        run: |
+          set -e
+          MC=${{ matrix.mc }}; mkdir srv && cd srv
+          LOADER=$(curl -fsSL https://meta.fabricmc.net/v2/versions/loader | jq -r '[.[]|select(.stable)][0].version')
+          INST=$(curl -fsSL https://meta.fabricmc.net/v2/versions/installer | jq -r '[.[]|select(.stable)][0].version')
+          curl -fsSL -o server.jar "https://meta.fabricmc.net/v2/versions/loader/$MC/$LOADER/$INST/server/jar"
+          echo "eula=true" > eula.txt; printf "online-mode=false\nlevel-seed=compass\nserver-port=25599\n" > server.properties
+          mkfifo in
+          (while ! grep -q "Done (" log.txt 2>/dev/null; do sleep 2; done; sleep 3; echo "save-all flush"; sleep 5; echo stop) > in &
+          timeout 900 java -Xmx3G -jar server.jar nogui < in > log.txt 2>&1 || true
+          tail -3 log.txt; ls world
+      - name: Pintar el mapa
+        run: mkdir -p png && node .github/scripts/mapa.js srv/world png
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: mapa-${{ matrix.mc }}
+          path: png
+
+  menu:
+    # abre el juego de verdad (sin pantalla, con Xvfb) con el mod puesto y un servidor local:
+    # comprueba que «Un jugador» desaparece y que «Conectar al servidor» entra
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        v: ["v261", "v120"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 25
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: "9.4.0"
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq xvfb libgl1-mesa-dri mesa-utils > /dev/null
+      - name: Versiones
+        run: |
+          stable() { curl -fsSL "https://maven.fabricmc.net/net/fabricmc/$1/net.fabricmc.$1.gradle.plugin/maven-metadata.xml" | grep -oP '(?<=<version>)[^<]+' | grep -E '^1\.15\.[0-9]+$' | sort -V | tail -1; }
+          LOADER=$(curl -fsSL https://meta.fabricmc.net/v2/versions/loader | jq -r '[.[]|select(.stable)][0].version')
+          fapi() { curl -fsSL "https://api.modrinth.com/v2/project/fabric-api/version?game_versions=%5B%22$1%22%5D&loaders=%5B%22fabric%22%5D" | jq -r '.[0].version_number'; }
+          if [ ${{ matrix.v }} = v261 ]; then MC=26.1; L=$(stable fabric-loom); else MC=1.20.1; L=$(stable fabric-loom-remap); fi
+          printf "loom_version=%s\nminecraft_version=%s\nloader_version=%s\nfabric_version=%s\nmod_version=0.0.1\norg.gradle.jvmargs=-Xmx3G\n" "$L" "$MC" "$LOADER" "$(fapi $MC)" > mod/${{ matrix.v }}/gradle.properties
+          echo "MC=$MC" >> $GITHUB_ENV
+      - name: Servidor local para entrar
+        run: |
+          mkdir srv && cd srv
+          LOADER=$(curl -fsSL https://meta.fabricmc.net/v2/versions/loader | jq -r '[.[]|select(.stable)][0].version')
+          INST=$(curl -fsSL https://meta.fabricmc.net/v2/versions/installer | jq -r '[.[]|select(.stable)][0].version')
+          curl -fsSL -o server.jar "https://meta.fabricmc.net/v2/versions/loader/$MC/$LOADER/$INST/server/jar"
+          echo "eula=true" > eula.txt; printf "online-mode=false\nlevel-type=minecraft\\:flat\nserver-port=25599\nenforce-secure-profile=false\n" > server.properties
+          nohup java -Xmx2G -jar server.jar nogui > log.txt 2>&1 < /dev/null &
+          for i in $(seq 1 90); do grep -q "Done (" log.txt && break; sleep 2; done; tail -2 log.txt
+      - name: Abrir el juego con el mod
+        env:
+          COMPASS_TEST: "1"
+        run: |
+          mkdir -p mod/${{ matrix.v }}/run
+          echo '{"server":"127.0.0.1:25599","name":"Prueba","label":"Conectar al servidor","hideSingleplayer":true}' > mod/${{ matrix.v }}/run/compass-menu.json
+          printf "onboardAccessibility:false\nnarrator:0\ntutorialStep:none\nskipMultiplayerWarning:true\njoinedFirstServer:true\n" > mod/${{ matrix.v }}/run/options.txt
+          (timeout 900 xvfb-run -a -s "-screen 0 1280x720x24" gradle -p mod/${{ matrix.v }} runClient --no-daemon > client.txt 2>&1 || true) &
+          for i in $(seq 1 400); do grep -q "joined the game" srv/log.txt && break; grep -q "BUILD FAILED\|Exception in thread \"Render thread\"" client.txt && break; sleep 2; done
+          sleep 5; pkill -f runClient || true; pkill -f KnotClient || true; pkill -f 'net.fabricmc.devlaunchinjector' || true
+          echo "----- juego"; grep -E "CompassTest|Compass|OpenGL|GL version|ERROR|Exception" client.txt | head -40
+          echo "----- servidor"; grep -E "joined|lost connection|logged in" srv/log.txt | head
+          grep -q "\[CompassTest\] menu" client.txt
+          grep -q "joined the game" srv/log.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: juego-${{ matrix.v }}
+          path: |
+            client.txt
+            srv/log.txt
+            mod/${{ matrix.v }}/run/logs/latest.log

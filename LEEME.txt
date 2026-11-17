@@ -1,7 +1,13 @@
-COMPASS LAUNCHER 5.4
+COMPASS LAUNCHER 5.5
 ====================
 
 Web: https://luckicla.github.io/compass-launcher  ·  Hecho por luckicla  ·  © 2026, todos los derechos reservados.
+
+NOVEDADES DE LA 5.5
+  - Mods + plugins en más versiones (Arclight o Fabric con Cardboard).
+  - Las listas de versiones de Paper y mods + plugins solo enseñan las que existen.
+  - Mapa con los colores de cada bioma.
+  - Configuración con copia de seguridad y comprobación de los .zip descargados.
 
 NOVEDADES DE LA 5.4
   - Plugin de Compass para Paper con los mismos comandos y autocompletado.

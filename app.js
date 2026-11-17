@@ -387,7 +387,7 @@ function scenePanel() {
     el('span', { class: 'scn-name' }, name));
   const own = store.get('sceneImg');
   return el('div', { class: 'panel' }, el('h3', {}, I('image', 16), ' Escena de Inicio'),
-    el('p', { class: 'hint', style: 'margin:-6px 0 12px' }, 'Lo que sale detrás del nombre del perfil en Inicio. También se cambia con clic derecho en la escena.'),
+    el('p', { class: 'hint', style: 'margin:-6px 0 12px' }, 'El fondo de Inicio. También se cambia con clic derecho.'),
     el('div', { class: 'scn-sub' }, 'Paisajes'),
     el('div', { class: 'scn-grid' }, ...Object.entries(SCENES).map(([k, S]) => card(k, S.name, landscape(k)))),
     el('div', { class: 'scn-sub' }, 'Otras'),
@@ -448,7 +448,7 @@ async function renderHome() {
     el('div', { class: 'joinbox' }, el('div', { class: 'search' }, I('link', 16), code),
       el('button', { class: 'btn ico', title: 'Pegar', onclick: async () => { code.value = CODE = (await A.call('paste')).trim(); code.focus(); } }, I('copy', 16)),
       joinB),
-    el('p', { class: 'hint', style: 'margin:8px 0 0' }, 'Con la IP o el código se descarga todo solo: la versión, Fabric y los mods del servidor. Se crea un perfil aparte para él y tus perfiles no se tocan.'),
+    el('p', { class: 'hint', style: 'margin:8px 0 0' }, 'Pega la IP o el código y Compass baja la versión y los mods del servidor en un perfil aparte.'),
     friends.length ? el('div', { class: 'fgrid' }, ...friends.map((f, i) => friendCard(f, i, busy || running)))
       : el('div', { class: 'empty', style: 'padding:30px 10px 10px' }, el('div', { html: ic('users', 40) }), el('b', {}, 'Aún no te has unido a ningún servidor'), 'Pide a tu amigo la IP de su servidor o su código de Compass y pégalo arriba.'));
   R.replaceChildren(scene, fr);
@@ -704,9 +704,9 @@ async function compassCard(t, box, reload) {
   let M; try { M = await A.call('compassMod', t); } catch { box.replaceChildren(); return; }
   if (!M || (!M.kind && t.kind !== 'server')) { box.replaceChildren(); return; }
   const plug = M.kind === 'plugin', srvT = t.kind === 'server';
-  const desc = !M.kind ? (srvT ? 'Los comandos con / y autocompletado van en servidores de la 1.20 en adelante (Fabric 1.20, 1.21 y 26.1; Paper 1.20 o más nuevo). Aquí funcionan con «!».' : '')
-    : srvT ? '/tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con autocompletado. Se regula en Gente.' + (M.on && M.running ? ' Reinicia el servidor para que se note.' : '')
-    : '«Conectar al servidor» entra directo y quita «Un jugador» del menú (si está activado en Ajustes).';
+  const desc = !M.kind ? (srvT ? 'Los comandos con / necesitan la 1.20 o más nueva. Aquí se usan con «!».' : '')
+    : srvT ? (M.on && M.running ? 'Comandos /tpa, /ctp, /home y demás. Se configuran en Gente. Reinicia el servidor para activarlo.' : 'Comandos /tpa, /ctp, /home y demás. Se configuran en Gente.')
+    : '«Conectar al servidor» entra directo y se quita «Un jugador».';
   const logo = el('div', { class: 'ico40', style: 'background:var(--s3);display:grid;place-items:center' }, el('img', { src: 'assets/icon.png', alt: '', style: 'width:28px;height:28px;image-rendering:pixelated' }));
   const tog = M.kind ? el('label', { class: 'sw', title: M.on ? 'Desactivar' : 'Activar' }, el('input', { type: 'checkbox', checked: !!M.on, onchange: async e => {
     e.target.disabled = true;
@@ -716,7 +716,7 @@ async function compassCard(t, box, reload) {
   } })) : null;
   box.replaceChildren(el('div', { class: 'li' + (M.on && M.kind ? '' : ' off'), style: 'box-shadow:inset 3px 0 0 var(--acc)' }, logo,
     el('div', { class: 't' }, el('b', {}, el('span', {}, plug ? 'Compass (plugin)' : 'Compass'), el('span', { class: 'tag acc' }, 'de Compass'), M.kind ? el('span', { class: 'tag' }, M.version) : null,
-      M.kind && M.on && !M.installed ? el('span', { class: 'tag warn' }, 'se pone al ' + (srvT ? 'arrancar' : 'jugar')) : null),
+      M.kind && M.on && !M.installed ? el('span', { class: 'tag warn' }, srvT ? 'se pone al arrancar' : 'se pone al jugar') : null),
       el('small', {}, desc)), tog));
 }
 function makeMods(t, opts = {}) {
@@ -736,7 +736,7 @@ function makeMods(t, opts = {}) {
   node.append(info, iss,
     el('div', { class: 'tools' }, el('div', { class: 'search' }, I('search', 16), q),
       B('refresh', 'Buscar actualizaciones', async () => { const r = await A.call('checkUpdates', t); UPD = {}; r.forEach(u => UPD[u.file] = u); render(); toast(r.length ? plural(r.length, 'actualización disponible', 'actualizaciones disponibles') : 'Todo está al día', 'ok', 3500); }, 'sm'), updAll,
-      B('shield', 'Comprobar', async () => { await load(); toast(ISS.length ? plural(ISS.length, 'problema encontrado', 'problemas encontrados') : 'Todo encaja: no hay conflictos', ISS.length ? 'warn' : 'ok', 3500); }, 'sm')),
+      B('shield', 'Comprobar', async () => { await load(); toast(ISS.length ? plural(ISS.length, 'problema encontrado', 'problemas encontrados') : 'No hay conflictos', ISS.length ? 'warn' : 'ok', 3500); }, 'sm')),
     el('div', { class: 'tools' },
       opts.onStore ? el('button', { class: 'btn sm pri', onclick: opts.onStore }, I('bag', 14), 'Añadir de la tienda') : null,
       B('zap', isSrv ? 'Pack de servidor' : 'Pack de rendimiento', async () => { const r = await A.call('pack', t); await load(); toast(`Pack: ${plural(r.installed, 'mod instalado', 'mods instalados')}${r.fixed.length ? '. Ajustado: ' + r.fixed.join(', ') : ''}`, r.remaining.length ? 'warn' : 'ok', 7000); }, 'sm'),
@@ -893,7 +893,7 @@ function renderSettings() {
         el('div', { class: 'toggle' }, sw(ST.minOnPlay !== false, async v => { await A.call('setPref', 'minOnPlay', v); ST.minOnPlay = v; }),
           el('div', { class: 't' }, el('b', {}, 'Minimizar el launcher mientras juegas'), el('small', {}, 'Al cerrar Minecraft vuelve a aparecer solo, en Inicio.')))),
       el('div', { class: 'panel' }, el('h3', {}, 'Java'),
-        el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Compass descarga solo el Java que pide cada versión la primera vez que juegas. Si prefieres tenerlos todos ya (8, 17, 21 y 25), descárgalos ahora.'),
+        el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Cada versión baja su Java la primera vez que juegas. Si quieres, puedes bajarlos todos ya.'),
         el('div', { class: 'row' }, el('button', { class: 'btn sm', onclick: e => act(e.currentTarget, async () => { toast('Descargando Java… puedes seguir usando Compass', 'info', 4000); await A.call('javaAll'); }) }, I('download', 14), 'Descargar todas las versiones de Java'))),
       el('div', { class: 'panel' }, el('h3', {}, 'Versiones de Minecraft'),
         el('div', { class: 'toggle' }, sw(!!SYS.snapshots, async v => { await A.call('setPref', 'showSnapshots', v); SYS.snapshots = v; toast(v ? 'Ya puedes elegir snapshots y versiones antiguas al crear o editar un perfil' : 'Solo se muestran las versiones normales', 'ok', 3500); }),
@@ -930,7 +930,7 @@ function renderSettings() {
         el('div', { class: 'row' }, ...[['data', 'Datos del launcher'], ['root', 'Versiones de Minecraft'], ['java', 'Java']].map(([w, t]) => el('button', { class: 'btn sm', onclick: () => A.call('openApp', w) }, I('folder', 14), t))),
         el('p', { class: 'hint' }, 'Dentro de «Datos» están profiles/ (perfiles), servers/ (servidores) y maps/ (tu biblioteca de mapas).')),
       el('div', { class: 'panel' }, el('h3', {}, 'Registro'),
-        el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Todo lo que pasa al preparar y abrir Minecraft se guarda aquí, en vez de llenar la pantalla. Si algo falla, ábrelo o mándaselo a quien te ayude.'),
+        el('p', { class: 'hint', style: 'margin:0 0 10px' }, 'Aquí se guarda lo que pasa al abrir Minecraft. Si algo falla, mira aquí.'),
         el('div', { class: 'row' }, B('filetext', 'Abrir registro', () => A.call('openLog'), 'sm pri')))],
     actualizar: () => updSection(),
     movil: () => mobSection(),
@@ -977,17 +977,18 @@ function renderRailServers() {
 }
 // tipos de servidor: con mods (Fabric), con plugins (Paper) o los dos a la vez (Arclight)
 const SRV_TYPES = [['fabric', 'cube', 'Con mods (Fabric)', 'Tus amigos reciben los mods solos al unirse.'], ['paper', 'zap', 'Con plugins (Paper)', 'Plugins de servidor: nadie tiene que instalar nada.'],
-  ['hybrid', 'layers', 'Mods + plugins', 'Mods de Fabric y plugins de Bukkit/Paper a la vez (Arclight). Solo algunas versiones.']];
+  ['hybrid', 'layers', 'Mods + plugins', 'Mods de Fabric y plugins de Paper a la vez.']];
 const srvTypeName = t => t === 'paper' ? 'Paper (plugins)' : t === 'hybrid' ? 'Mods + plugins' : 'Fabric (mods)';
 const srvTypeIcon = t => t === 'paper' ? 'zap' : t === 'hybrid' ? 'layers' : 'cube';
-// al elegir «Mods + plugins» la lista de versiones se limita a las que tiene Arclight
+// con Paper o «Mods + plugins», la lista de versiones se limita a las que existen para ese tipo
 async function fitVersions(sel, typ, keep) {
   const cur = sel.value;
   let list = SYS.versions;
-  if (typ === 'hybrid') { try { list = await A.call('hybridVersions'); } catch { list = []; } }
+  if (typ === 'hybrid' || typ === 'paper') { try { list = await A.call(typ === 'paper' ? 'paperVersions' : 'hybridVersions'); } catch { list = []; } if (!list.length) list = SYS.versions; }
+  const limited = typ === 'hybrid' || typ === 'paper', tag = typ === 'paper' ? ' (no hay Paper)' : ' (no hay mods + plugins)';
   const vs = [...new Set([...(keep ? [keep] : []), ...list])].filter(Boolean).sort(vcmp);
-  sel.replaceChildren(...vs.map(v => el('option', { value: v }, 'Minecraft ' + v + (typ === 'hybrid' && !list.includes(v) ? ' (sin mods + plugins)' : ''))));
-  sel.value = vs.includes(cur) && (typ !== 'hybrid' || list.includes(cur)) ? cur : (typ === 'hybrid' ? (list.slice().sort(vcmp)[0] || cur) : cur);
+  sel.replaceChildren(...vs.map(v => el('option', { value: v }, 'Minecraft ' + v + (limited && !list.includes(v) ? tag : ''))));
+  sel.value = vs.includes(cur) && (!limited || list.includes(cur)) ? cur : (limited ? (list.slice().sort(vcmp)[0] || cur) : cur);
 }
 function typePicker(cur, onPick, big) {
   const w = el('div', { class: 'radio three' }, ...SRV_TYPES.map(([v, i, t, d]) => el('button', { class: v === cur ? 'on' : '', onclick: e => { $$('button', w).forEach(b => b.classList.toggle('on', b === e.currentTarget)); onPick(v); } }, I(i, big ? 20 : 18), el('div', {}, el('b', {}, t), el('span', {}, d)))));
@@ -1382,11 +1383,11 @@ async function tabGente(s, body) {
       : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie es OP todavía. Hazte OP a ti para poder usar comandos dentro del juego.'));
 
   const tp = el('div', { class: 'panel' }, el('h3', {}, I('tp', 16), ' Permiso de /ctp', el('span', { class: 'tag' + (D.tp.length ? ' acc' : '') }, String(D.tp.length))),
-    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Pueden usar /ctp como el /tp normal, sin ser OP: nada de modo de juego, /give ni otros comandos. En el chat escriben (o con «!» si el servidor no lleva el mod):'),
+    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, 'Pueden usar /ctp como el /tp de siempre sin ser OP (ni /give ni modo de juego).'),
     el('div', { class: 'cmdhelp' }, el('code', {}, '/ctp Nombre'), el('span', {}, 'ir hasta otro jugador'), el('code', {}, '/ctp x y z'), el('span', {}, 'ir a unas coordenadas'), el('code', {}, '/ctp Nombre Otro'), el('span', {}, 'llevar a alguien hasta otro')),
     D.tp.length ? el('div', { class: 'list' }, ...D.tp.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name)), el('small', {}, D.online.some(o => o.toLowerCase() === t.name.toLowerCase()) ? 'Conectado' : 'Desconectado')),
       el('button', { class: 'btn sm ghost', onclick: () => run('tpRemove', { name: t.name }, t.name + ' ya no puede usar /ctp') }, 'Quitar'))))
-      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie todavía. Escribe un nombre arriba y pulsa «Dar solo TP».'));
+      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie. Escribe un nombre arriba y pulsa «Dar /ctp».'));
 
   const wl = el('div', { class: 'panel' }, el('h3', {}, 'Lista blanca', el('span', { class: 'sp' }), el('label', { class: 'row nw', style: 'gap:8px;font:600 13px var(--body)' }, D.whitelistOn ? 'Activada' : 'Desactivada', sw(D.whitelistOn, v => run('whitelist', { on: v }, v ? 'Lista blanca activada: solo entran los de la lista' : 'Lista blanca desactivada')))),
     el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, D.whitelistOn ? 'Solo pueden entrar los que estén aquí.' : 'Apagada: puede entrar cualquiera que tenga el código.'),
@@ -1401,7 +1402,7 @@ async function tabGente(s, body) {
         el('button', { class: 'btn sm', onclick: () => run('pardon', { name: b.name }, b.name + ' puede volver a entrar') }, 'Quitar baneo')), () => [{ t: b.name, title: true }, { i: 'check', t: 'Quitar baneo', f: () => run('pardon', { name: b.name }, b.name + ' puede volver a entrar') }, { i: 'copy', t: 'Copiar nombre', f: () => copyTxt(b.name) }])),
       ...D.ipbans.map(b => el('div', { class: 'li' }, el('span', { class: 'head', html: ic('globe', 16) }), el('div', { class: 't' }, el('b', {}, el('span', {}, b.ip)), el('small', {}, b.reason || '')),
         el('button', { class: 'btn sm', onclick: () => run('pardonIp', { ip: b.ip }, b.ip + ' desbaneada') }, 'Quitar baneo'))))
-      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie baneado. Así da gusto.'),
+      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie baneado.'),
     el('div', { class: 'row nw', style: 'margin-top:12px' }, ip, el('button', { class: 'btn sm dng', onclick: () => { if (ip.value.trim()) run('banIp', { ip: ip.value.trim() }, 'IP baneada'); } }, I('ban', 14), 'Banear IP')));
 
   // comandos de Compass en el chat («!» siempre; «/» con autocompletado si el servidor lleva el mod): quién puede usarlos, cuántas casas y los tiempos
@@ -1414,24 +1415,24 @@ async function tabGente(s, body) {
   const row = (title, sub, ctl) => el('div', { class: 'toggle' }, el('div', { class: 't' }, el('b', {}, title), sub ? el('small', {}, sub) : null), ctl);
   const swRow = (on, fn, title, sub) => el('div', { class: 'toggle' }, sw(on, fn), el('div', { class: 't' }, el('b', {}, title), sub ? el('small', {}, sub) : null));
   const cmds = el('div', { class: 'panel' }, el('h3', {}, I('console', 16), ' Comandos de Compass en el chat'),
-    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, P === '/' ? 'Tus amigos escriben «/» y Tab para completar, o «/compass» para ver los suyos. También funcionan con «!».' : 'Tus amigos escriben «!» en el chat y les salen los comandos que pueden usar, con botones para escribirlos.'),
-    swRow(C.tpa !== 'off', v => setC({ tpa: v ? 'all' : 'off' }), `${P}tpa Nombre`, 'Pedir ir hasta otro jugador. El otro acepta con un clic.'),
-    row(`${P}ctp`, 'Como el /tp normal (a alguien, a unas coordenadas o llevar a uno hasta otro), sin ser OP.', who(C.ctp, v => setC({ ctp: v }))),
-    row(`Casas (${P}sethome, ${P}home, ${P}homes, ${P}delhome)`, 'Guardar sitios y volver a ellos.', who(C.home, v => setC({ home: v }))),
+    el('p', { class: 'hint', style: 'margin:-6px 0 8px' }, P === '/' ? 'Escribe /compass en el chat para ver la lista. Tab completa nombres y casas.' : 'Escribe ! en el chat para ver la lista.'),
+    swRow(C.tpa !== 'off', v => setC({ tpa: v ? 'all' : 'off' }), `${P}tpa Nombre`, 'Pedir ir con otro jugador. El otro tiene que aceptar.'),
+    row(`${P}ctp`, 'El /tp de siempre, pero sin ser OP.', who(C.ctp, v => setC({ ctp: v }))),
+    row(`Casas (${P}sethome, ${P}home, ${P}homes, ${P}delhome)`, 'Guardar un sitio y volver luego.', who(C.home, v => setC({ home: v }))),
     C.home !== 'off' ? row('Casas por jugador', null, pick(C.homes, [1, 2, 3, 5, 10, 20, 50].map(n => [n, n === 1 ? '1 casa' : n + ' casas']), v => setC({ homes: v }))) : null,
     el('div', { class: 'sub', style: 'margin:12px 0 4px;color:var(--mut);font-size:12px;text-transform:uppercase;letter-spacing:.06em' }, 'Tiempos'),
-    row('Cuenta atrás antes de teletransportar', `Para ${P}tpa y ${P}home. Sale encima de la barra rápida.`, pick(C.wait, [[0, 'Sin espera'], [3, '3 s'], [5, '5 s'], [10, '10 s']], v => setC({ wait: v }))),
-    row('Tiempo entre teletransportes', `Lo que hay que esperar para volver a usar ${P}tpa o ${P}home.`, pick(C.cool, [[0, 'Sin límite'], [10, '10 s'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [900, '15 min']], v => setC({ cool: v }))),
+    row('Cuenta atrás antes de teletransportar', `Para ${P}tpa y ${P}home.`, pick(C.wait, [[0, 'Sin espera'], [3, '3 s'], [5, '5 s'], [10, '10 s']], v => setC({ wait: v }))),
+    row('Tiempo entre teletransportes', `Entre un ${P}tpa o ${P}home y el siguiente.`, pick(C.cool, [[0, 'Sin límite'], [10, '10 s'], [30, '30 s'], [60, '1 min'], [300, '5 min'], [900, '15 min']], v => setC({ cool: v }))),
     C.tpa !== 'off' ? row(`Tiempo para aceptar un ${P}tpa`, null, pick(C.tpaTime, [[30, '30 s'], [60, '1 min'], [120, '2 min'], [300, '5 min']], v => setC({ tpaTime: v }))) : null,
     modOk
       ? swRow(C.mod !== false, v => setC({ mod: v }), 'Comandos con / y autocompletado',
-        plug ? 'Pone el plugin de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Sale en la lista de plugins. Se nota al reiniciar el servidor.'
-          : 'Pone el mod de Compass en el servidor: /tpa, /tpaccept, /tpdeny, /ctp, /sethome, /home, /homes, /delhome y /compass, con Tab para completar nombres y casas. A cada uno solo le salen los que puede usar. Sale en la lista de mods. Se nota al reiniciar el servidor.')
-      : el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Los comandos con / y autocompletado (mod o plugin de Compass) son para servidores de la 1.20 en adelante (Fabric 1.20, 1.21 y 26.1; Paper 1.20 o más nuevo). Aquí se usan con «!».'));
+        plug ? 'Usa el plugin de Compass para que los comandos vayan con / y Tab. Se activa al reiniciar el servidor.'
+          : 'Usa el mod de Compass para que los comandos vayan con / y Tab. Se activa al reiniciar el servidor.')
+      : el('p', { class: 'hint', style: 'margin:6px 0 0' }, 'Los comandos con / necesitan la 1.20 o más nueva. Aquí se usan con «!».'));
   const homes = C.home === 'perm' ? el('div', { class: 'panel' }, el('h3', {}, I('home', 16), ' Permiso de casas', el('span', { class: 'tag' + ((D.home || []).length ? ' acc' : '') }, String((D.home || []).length))),
     (D.home || []).length ? el('div', { class: 'list' }, ...D.home.map(t => el('div', { class: 'li' }, head(t.name), el('div', { class: 't' }, el('b', {}, el('span', {}, t.name))),
       el('button', { class: 'btn sm ghost', onclick: () => run('homeRemove', { name: t.name }, t.name + ' ya no puede usar casas') }, 'Quitar'))))
-      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie todavía. Escribe un nombre arriba y pulsa «Dar casas».')) : null;
+      : el('p', { class: 'hint', style: 'margin:0' }, 'Nadie. Escribe un nombre arriba y pulsa «Dar casas».')) : null;
   if (C.home === 'perm') $('.row.nw', add).append(el('button', { class: 'btn', onclick: () => { const n = need(); if (n) run('homeAdd', { name: n }, n + ' ya puede usar casas'); } }, I('home', 14), 'Dar casas'));
   body.replaceChildren(el('div', { class: 'stack' }, add, online, el('div', { class: 'cols' }, el('div', { class: 'stack' }, cmds, C.ctp === 'perm' ? tp : null, homes, ops), el('div', { class: 'stack' }, wl, bans))));
   body._paint = () => { if (TAB === 'gente') tabGente(s, body); };
@@ -1516,7 +1517,7 @@ async function tabAjustes(s, body) {
   let mode = s.mode || 'online', ram = s.ram, typ = s.type || 'fabric', color = s.color || '';
   const pres = presentationPanel(s, pr, PV, bind, bool, c => color = c);
   const typePick = typePicker(typ, v => { typ = v; fitVersions(mc, v, s.mc); });
-  if (typ === 'hybrid') fitVersions(mc, typ, s.mc);
+  if (typ === 'hybrid' || typ === 'paper') fitVersions(mc, typ, s.mc);
   const modes = el('div', { class: 'radio' }, ...[['online', 'globe', 'Online automático', 'Abre los puertos del router solo y, si no puede, usa un túnel. Lo recomendado.'], ['manual', 'globe', 'Puerto abierto a mano', 'Ya abriste el 25565 (TCP) en tu router. Tus amigos entran con tu IP y reciben los mods por ahí.'], ['tunnel', 'tunnel', 'Solo túnel', 'Sin tocar el router. Para fibras con CGNAT o redes de residencia.'], ['lan', 'wifi', 'Red local o VPN', 'Misma casa o una VPN tipo Radmin o Hamachi.']]
     .map(([m, i, t, d]) => el('button', { class: m === mode ? 'on' : '', onclick: e => { mode = m; $$('button', modes).forEach(x => x.classList.toggle('on', x === e.currentTarget)); } }, I(i, 18), el('div', {}, el('b', {}, t), el('span', {}, d)))));
   const auto = el('input', { type: 'checkbox', checked: !!s.autoRestart }), shareW = el('input', { type: 'checkbox', checked: s.shareWorld !== false });
