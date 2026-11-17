@@ -87,7 +87,8 @@ const P = id => ST.profiles.find(p => p.id === id), SV = id => ST.servers.find(s
 let CODE = '';
 let MODE = store.get('mode') === 'host' ? 'host' : 'play', PAGE = 'home', selP = null, selS = store.get('selS'), TAB = 'resumen', PREV = 'home';
 const reload = async () => { Object.assign(ST, await A.call('state')); try { I18N.protect([...ST.profiles.map(p => p.name), ...ST.servers.map(s => s.name)]); } catch {} if (!P(selP)) selP = ST.active; if (!SV(selS)) selS = ST.servers[0] && ST.servers[0].id; };
-const vcmp = (a, b) => { const x = a.split('.').map(Number), y = b.split('.').map(Number); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (y[i] || 0) - (x[i] || 0); return 0; };
+const vkey = v => { const [n, pre] = String(v).split('-'); return { n: n.split('.').map(x => parseInt(x, 10) || 0), pre: pre ? 1 : 0 }; };
+const vcmp = (a, b) => { const x = vkey(a), y = vkey(b); for (let i = 0; i < Math.max(x.n.length, y.n.length); i++) if ((x.n[i] || 0) !== (y.n[i] || 0)) return (y.n[i] || 0) - (x.n[i] || 0); return x.pre - y.pre; };
 // servidores: solo versiones con Fabric/Paper
 const srvMcSelect = (cur, dis) => { const s = el('select', { class: 'in', disabled: !!dis }); [...new Set([cur, ...SYS.versions])].filter(Boolean).sort(vcmp).forEach(v => s.append(el('option', { value: v }, 'Minecraft ' + v))); s.value = cur; return s; };
 // selector de versión: todas las de Mojang. Las snapshots, betas y alphas solo si las activas en Ajustes › Al jugar
