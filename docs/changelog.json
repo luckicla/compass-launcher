@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.7.2": {
+    "es": "## Novedades de la 5.7.2\n\n- Arreglado: los perfiles de NeoForge (y Forge) se cerraban al abrir el juego con «Module minecraft contains package…».",
+    "en": "## What's new in 5.7.2\n\n- Fixed: NeoForge (and Forge) profiles closed when starting the game with \"Module minecraft contains package…\".",
+    "ca": "## Novetats de la 5.7.2\n\n- Arreglat: els perfils de NeoForge (i Forge) es tancaven en obrir el joc amb «Module minecraft contains package…»."
+  },
   "5.7.1": {
     "es": "## Novedades de la 5.7.1\n\n- Forge y NeoForge: Compass lee lo que necesita cada mod y, si falta algo obligatorio (por ejemplo el núcleo de Immersive Vehicles para su pack de contenido), lo busca e instala solo antes de arrancar, en Modrinth o en CurseForge.",
     "en": "## What's new in 5.7.1\n\n- Forge and NeoForge: Compass reads what each mod needs and, if something required is missing (for example the Immersive Vehicles core for its content pack), it finds and installs it before starting, on Modrinth or CurseForge.",

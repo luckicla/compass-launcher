@@ -1834,10 +1834,13 @@ async function ensureForgeClient(p) {
     k = c.forgeClient[key] = { ver: inst.ver, id }; save();
   }
   const j = JSON.parse(fs.readFileSync(vj(k.id), 'utf8'));
-  const sub = a => String(a).replace(/\$\{library_directory\}/g, path.join(R, 'libraries')).replace(/\$\{classpath_separator\}/g, path.delimiter).replace(/\$\{version_name\}/g, mc);
+  // ${version_name}.jar en ignoreList: el .jar de Minecraft que Launcher Core pone en el classpath. Puede llamarse como la
+  // copia (<id>-compass.jar) o como la versión normal (1.21.1.jar): se ignoran los dos, o NeoForge lo carga dos veces y no arranca
+  const did = k.id + '-compass', dj = vj(did);
+  const sub = a => String(a).replace(/\$\{library_directory\}/g, path.join(R, 'libraries')).replace(/\$\{classpath_separator\}/g, path.delimiter)
+    .replace(/\$\{version_name\}\.jar/g, `${did}.jar,${mc}.jar,${k.id}.jar`).replace(/\$\{version_name\}/g, did);
   const plain = l => (l || []).filter(x => typeof x === 'string').map(sub);
   const jvm = plain(j.arguments && j.arguments.jvm), game = plain(j.arguments && j.arguments.game);
-  const did = k.id + '-compass', dj = vj(did);
   fs.mkdirSync(path.dirname(dj), { recursive: true });
   fs.writeFileSync(dj, JSON.stringify({ ...j, id: did, arguments: { game: [], jvm: [] } }));
   return { id: did, jvm, game };
