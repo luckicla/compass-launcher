@@ -3067,6 +3067,14 @@ const H = {
         try { optsIn(p); } catch (e) { log('Ajustes compartidos: ' + e.message); }
         try { menuSetup(p); } catch (e) { log('Menú de Compass: ' + e.message); }
       }
+      if (forgeP) {   // mods de Fabric que se hayan quedado en un perfil de Forge/NeoForge: se desactivan, si no el juego no arranca
+        const off = [];
+        for (const f of fs.readdirSync(t.mods).filter(f => /\.jar$/i.test(f))) {
+          const fp = path.join(t.mods, f);
+          if (f.startsWith(CMD_MOD) || compat.fabricOnly(fp)) { try { fs.renameSync(fp, fp + '.disabled'); off.push(f); } catch {} }
+        }
+        if (off.length) { log(`${LNAME[p.loader]}: desactivados mods de Fabric: ${off.join(', ')}`); toast(`Desactivados ${off.length} mods de Fabric que no funcionan con ${LNAME[p.loader]} (siguen en la carpeta, apagados).`, 'info', 8000); }
+      }
       const javaPath = await ensureJava(p.mc);
       let versionId = null, lx = {};   // las versiones sin Fabric (muy antiguas o snapshots raras) se juegan sin mods
       if (forgeP) { const fx = await ensureForgeClient(p); versionId = fx.id; lx = { customArgs: fx.jvm, customLaunchArgs: fx.game }; }

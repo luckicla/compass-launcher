@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.7.3": {
+    "es": "## Novedades de la 5.7.3\n\n- Al jugar con un perfil de Forge o NeoForge, los mods de Fabric que se hayan quedado en él (por ejemplo, de cuando el servidor era de Fabric) se desactivan solos en vez de impedir que arranque el juego.",
+    "en": "## What's new in 5.7.3\n\n- When playing a Forge or NeoForge profile, Fabric mods left in it (for example from when the server was Fabric) are disabled automatically instead of stopping the game from starting.",
+    "ca": "## Novetats de la 5.7.3\n\n- En jugar amb un perfil de Forge o NeoForge, els mods de Fabric que hi hagin quedat (per exemple, de quan el servidor era de Fabric) es desactiven sols en lloc d'impedir que arrenqui el joc."
+  },
   "5.7.2": {
     "es": "## Novedades de la 5.7.2\n\n- Arreglado: los perfiles de NeoForge (y Forge) se cerraban al abrir el juego con «Module minecraft contains package…».",
     "en": "## What's new in 5.7.2\n\n- Fixed: NeoForge (and Forge) profiles closed when starting the game with \"Module minecraft contains package…\".",

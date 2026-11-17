@@ -208,4 +208,8 @@ function check(mods, ctx) {
   return issues;
 }
 
-module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN, parseToml };
+// ¿es un mod solo de Fabric? (tiene fabric.mod.json y nada de Forge/NeoForge; los multi-cargador no cuentan)
+function fabricOnly(file) {
+  try { const z = new (require('adm-zip'))(file); return !!z.getEntry('fabric.mod.json') && !z.getEntry('META-INF/neoforge.mods.toml') && !z.getEntry('META-INF/mods.toml'); } catch { return false; }
+}
+module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN, parseToml, fabricOnly };
