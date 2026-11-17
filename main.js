@@ -159,8 +159,11 @@ async function dl(u, f, label, tries = 3, want = null) {
       rs.on('data', c => { kick(); got += c.length; if (label && total) prog(label, got / total * 100); });
       await pipeline(rs, fs.createWriteStream(f + '.part'));
       if (total && fs.statSync(f + '.part').size !== total) throw new Error('Descarga cortada: ' + path.basename(f));
-      if (want && crypto.createHash('sha1').update(fs.readFileSync(f + '.part')).digest('hex') !== want) throw new Error('Descarga dañada: ' + path.basename(f));
-      if (/\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
+      // want: sha1 (texto) o { sha256 }. Si el servidor da la huella y cuadra, el archivo es el bueno y no hace falta mirar el zip por dentro
+      // (algunos .jar legítimos, como el Paper de la 1.16.5, no pasaban esa comprobación y se daban por dañados)
+      const [algo, hash] = !want ? [] : typeof want === 'string' ? ['sha1', want] : want.sha256 ? ['sha256', want.sha256] : want.sha1 ? ['sha1', want.sha1] : [];
+      if (hash && crypto.createHash(algo).update(fs.readFileSync(f + '.part')).digest('hex') !== String(hash).toLowerCase()) throw new Error('Descarga dañada: ' + path.basename(f));
+      if (!hash && /\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
       fs.renameSync(f + '.part', f);
       return;
     } catch (e) {
@@ -532,7 +535,7 @@ async function paperJar(s, dir) {
   const d = b && b.downloads && (b.downloads['server:default'] || Object.values(b.downloads)[0]);
   if (d && d.url) {   // si la descarga falla, se ve el error real (antes se tapaba con «Paper no tiene…»)
     const jar = path.join(dir, `paper-${v}-${b.id ?? b.build}.jar`);
-    if (!fs.existsSync(jar)) await dl(d.url, jar, 'Descargando Paper ' + v);
+    if (!fs.existsSync(jar)) await dl(d.url, jar, 'Descargando Paper ' + v, 3, d.checksums && d.checksums.sha256 ? { sha256: d.checksums.sha256 } : null);
     return jar;
   }
   try {   // API antigua (v2)
@@ -540,7 +543,7 @@ async function paperJar(s, dir) {
     const builds = r.builds || [], ob = builds.filter(x => x.channel === 'default').pop() || builds[builds.length - 1];
     if (ob) {
       const name = ob.downloads.application.name, jar = path.join(dir, `paper-${v}-${ob.build}.jar`);
-      if (!fs.existsSync(jar)) await dl(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds/${ob.build}/downloads/${name}`, jar, 'Descargando Paper ' + v);
+      if (!fs.existsSync(jar)) await dl(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds/${ob.build}/downloads/${name}`, jar, 'Descargando Paper ' + v, 3, ob.downloads.application.sha256 ? { sha256: ob.downloads.application.sha256 } : null);
       return jar;
     }
     errs.push('sin builds');

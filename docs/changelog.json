@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.6.1": {
+    "es": "## Novedades de la 5.6.1\n\n- Arreglado: Paper de algunas versiones (como la 1.16.5) se daba por «descarga dañada» aunque estaba bien. Ahora se comprueba con la huella oficial de PaperMC.",
+    "en": "## What's new in 5.6.1\n\n- Fixed: Paper on some versions (like 1.16.5) was reported as a \"damaged download\" even though it was fine. It's now checked against PaperMC's official checksum.",
+    "ca": "## Novetats de la 5.6.1\n\n- Arreglat: Paper d'algunes versions (com la 1.16.5) es donava per «baixada malmesa» tot i que estava bé. Ara es comprova amb l'empremta oficial de PaperMC."
+  },
   "5.6.0": {
     "es": "## Novedades de la 5.6\n\n- **Servidores Vanilla**: el servidor oficial de Mojang, sin mods ni plugins, en cualquier versión normal desde la 1.2.5.\n- La ventana de «Nuevo servidor» es más ancha: los cuatro tipos se ven de un vistazo y el nombre y la versión van en la misma fila.",
     "en": "## What's new in 5.6\n\n- **Vanilla servers**: Mojang's official server, no mods or plugins, on any normal version since 1.2.5.\n- The \"New server\" window is wider: the four types fit at a glance and the name and version share a row.",
