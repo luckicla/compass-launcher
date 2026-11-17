@@ -212,4 +212,33 @@ function check(mods, ctx) {
 function fabricOnly(file) {
   try { const z = new (require('adm-zip'))(file); return !!z.getEntry('fabric.mod.json') && !z.getEntry('META-INF/neoforge.mods.toml') && !z.getEntry('META-INF/mods.toml'); } catch { return false; }
 }
-module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN, parseToml, fabricOnly };
+// rangos de Maven que usan Forge/NeoForge: "[1.21,1.21.2)", "[26.1.2]", "26.1.2", "[1.20.1,)"
+const vnum = v => String(v).split('-')[0].split('.').map(n => parseInt(n, 10) || 0);
+const vcmp2 = (a, b) => { const x = vnum(a), y = vnum(b); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+function inMavenRange(v, range) {
+  const r = String(range || '').trim(); if (!r || r === '*') return true;
+  const parts = r.match(/[\[(][^\])]*[\])]/g);
+  if (!parts) return vcmp2(v, r) === 0;
+  return parts.some(p => {
+    const lo = p[0], hi = p[p.length - 1], [a, b] = p.slice(1, -1).split(',').map(x => (x || '').trim());
+    if (b === undefined) return vcmp2(v, a) === 0;   // [1.2.3]
+    if (a && (lo === '[' ? vcmp2(v, a) < 0 : vcmp2(v, a) <= 0)) return false;
+    if (b && (hi === ']' ? vcmp2(v, b) > 0 : vcmp2(v, b) >= 0)) return false;
+    return true;
+  });
+}
+// ¿sirve este .jar en un perfil/servidor de Forge o NeoForge con este Minecraft? null si sí; si no, el motivo
+function forgeFit(file, L, mc) {
+  let z; try { z = new (require('adm-zip'))(file); } catch { return null; }
+  const neo = z.getEntry('META-INF/neoforge.mods.toml'), old = z.getEntry('META-INF/mods.toml');
+  let mf = ''; try { const e = z.getEntry('META-INF/MANIFEST.MF'); if (e) mf = e.getData().toString('utf8'); } catch {}
+  if (/FMLModType:\s*(GAMELIBRARY|LIBRARY|LANGPROVIDER)/i.test(mf)) return null;   // librerías: las carga el propio cargador
+  const t = L === 'neoforge' ? (neo || (vcmp2(mc, '1.20.5') < 0 ? old : null)) : old;
+  if (!t) return z.getEntry('fabric.mod.json') ? 'es de Fabric' : `no es de ${L === 'neoforge' ? 'NeoForge' : 'Forge'}`;
+  try {
+    for (const tab of parseToml(t.getData().toString('utf8')))
+      if (/^dependencies\./.test(tab._t) && tab.modId === 'minecraft' && tab.versionRange && !inMavenRange(mc, tab.versionRange)) return `es para Minecraft ${tab.versionRange}`;
+  } catch {}
+  return null;
+}
+module.exports = { parseVer, cmp, satisfies, readMeta, check, BUILTIN, parseToml, fabricOnly, forgeFit, inMavenRange };

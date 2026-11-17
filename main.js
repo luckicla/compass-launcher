@@ -1811,6 +1811,16 @@ async function forgeServerLaunch(s, dir, note) {   // devuelve los argumentos de
   if (!af) throw new Error(`No encuentro cómo arrancar ${LNAME[L]} ${cur.ver}. Borra .compass-loader.json en Archivos y vuelve a iniciar.`);
   return { args: ['@' + af] };
 }
+// mods de una carpeta que no sirven con este cargador y versión (de Fabric, para otro Minecraft…): se apagan (.disabled)
+function offUnfit(dir, L, mc) {
+  const off = [];
+  let files = []; try { files = fs.readdirSync(dir).filter(f => /\.jar$/i.test(f)); } catch { return off; }
+  for (const f of files) {
+    const fp = path.join(dir, f), why = f.startsWith(CMD_MOD) ? 'es de Fabric' : compat.forgeFit(fp, L, mc);
+    if (why) { try { fs.renameSync(fp, fp + '.disabled'); off.push(f.replace(/\.jar$/i, '')); log(`${LNAME[L]}: desactivado ${f} (${why})`); } catch {} }
+  }
+  return off;
+}
 // Cliente: el instalador deja versions/<id>/<id>.json. Minecraft Launcher Core no entiende sus argumentos de Java
 // (${library_directory}…), así que se le pasa una copia sin argumentos y estos van ya resueltos aparte.
 async function ensureForgeClient(p) {
@@ -2025,6 +2035,7 @@ async function srvSpawn(s, r) {
   catch (e) { stopGate(); log('Puerta: ' + e.message); srvOut(`[Compass] El puerto ${GAME_PORT} está ocupado: tus amigos necesitarán el código CMP para recibir los mods.\n`); }
   if (!alive()) return;
   setProps(s, { 'server-port': port, 'server-ip': bind });
+  if (isForgeL(s.type)) { const off = offUnfit(mdir, s.type, s.mc); if (off.length) srvOut(`[Compass] Desactivados (no funcionan con ${LNAME[s.type]} ${s.mc}): ${off.join(', ')}\n`); }
   if (!noMods(s)) { const bad = await dropBrokenJars(mdir); if (bad.length) { srvOut(`[Compass] Mods dañados quitados: ${bad.join(', ')}. Vuelvo a bajar lo que haga falta…\n`); try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} } }
   try { await cmdModSetup(srv(s.id) || s, r); } catch (e) { r.cmdMod = false; log('Mod de comandos: ' + e.message); }
   if (!alive()) return;
@@ -3067,13 +3078,9 @@ const H = {
         try { optsIn(p); } catch (e) { log('Ajustes compartidos: ' + e.message); }
         try { menuSetup(p); } catch (e) { log('Menú de Compass: ' + e.message); }
       }
-      if (forgeP) {   // mods de Fabric que se hayan quedado en un perfil de Forge/NeoForge: se desactivan, si no el juego no arranca
-        const off = [];
-        for (const f of fs.readdirSync(t.mods).filter(f => /\.jar$/i.test(f))) {
-          const fp = path.join(t.mods, f);
-          if (f.startsWith(CMD_MOD) || compat.fabricOnly(fp)) { try { fs.renameSync(fp, fp + '.disabled'); off.push(f); } catch {} }
-        }
-        if (off.length) { log(`${LNAME[p.loader]}: desactivados mods de Fabric: ${off.join(', ')}`); toast(`Desactivados ${off.length} mods de Fabric que no funcionan con ${LNAME[p.loader]} (siguen en la carpeta, apagados).`, 'info', 8000); }
+      if (forgeP) {   // mods que no sirven aquí (de Fabric, de otra versión…): se desactivan, si no el juego no arranca
+        const off = offUnfit(t.mods, p.loader, p.mc);
+        if (off.length) toast(`Desactivados ${off.length} mods que no funcionan con ${LNAME[p.loader]} ${p.mc}: ${off.join(', ')}. Siguen en la carpeta, apagados.`, 'info', 10000);
       }
       const javaPath = await ensureJava(p.mc);
       let versionId = null, lx = {};   // las versiones sin Fabric (muy antiguas o snapshots raras) se juegan sin mods

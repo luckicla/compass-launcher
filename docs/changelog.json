@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.7.4": {
+    "es": "## Novedades de la 5.7.4\n\n- Forge y NeoForge: antes de jugar o de encender el servidor se apagan solos los mods que no sirven ahí (de Fabric, de otra versión de Minecraft o sin datos de NeoForge), en vez de que el juego se pare con «Error loading mods».",
+    "en": "## What's new in 5.7.4\n\n- Forge and NeoForge: before playing or starting the server, mods that don't fit (Fabric ones, for another Minecraft version or without NeoForge data) are turned off automatically, instead of the game stopping with \"Error loading mods\".",
+    "ca": "## Novetats de la 5.7.4\n\n- Forge i NeoForge: abans de jugar o d'engegar el servidor s'apaguen sols els mods que no hi serveixen (de Fabric, d'una altra versió de Minecraft o sense dades de NeoForge), en lloc que el joc s'aturi amb «Error loading mods»."
+  },
   "5.7.3": {
     "es": "## Novedades de la 5.7.3\n\n- Al jugar con un perfil de Forge o NeoForge, los mods de Fabric que se hayan quedado en él (por ejemplo, de cuando el servidor era de Fabric) se desactivan solos en vez de impedir que arranque el juego.",
     "en": "## What's new in 5.7.3\n\n- When playing a Forge or NeoForge profile, Fabric mods left in it (for example from when the server was Fabric) are disabled automatically instead of stopping the game from starting.",
