@@ -237,7 +237,7 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:14px;height:20px;b
 @media (max-width:900px){.radio.three{grid-template-columns:1fr}}
 .radio.four{grid-template-columns:repeat(2,1fr);gap:10px}.radio.four button{padding:14px 12px}
 #modal .box.xwide{width:860px}
-#modal .box.xwide .radio.four{grid-template-columns:repeat(4,1fr)}
+#modal .box.xwide .radio.four{grid-template-columns:repeat(3,1fr)}
 .newsrv .pair{display:grid;grid-template-columns:3fr 2fr;gap:12px}
 @media (max-width:900px){#modal .box.xwide .radio.four{grid-template-columns:repeat(2,1fr)}.newsrv .pair{grid-template-columns:1fr}}
 #railProfiles .mini small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}

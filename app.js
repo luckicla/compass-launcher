@@ -105,6 +105,17 @@ const mcSelect = (cur, dis) => {
   if (cur && !all.some(v => v.id === cur)) s.prepend(el('option', { value: cur }, 'Minecraft ' + cur));
   s.value = cur; return s;
 };
+// cargador de mods de un perfil: Fabric, Forge o NeoForge (cada uno tiene sus versiones de Minecraft)
+const PLOADERS = [['fabric', 'Fabric'], ['forge', 'Forge'], ['neoforge', 'NeoForge']];
+const LNAME = { fabric: 'Fabric', forge: 'Forge', neoforge: 'NeoForge' };
+async function loaderMcSelect(holder, L, cur, dis) {   // pone en holder el selector de versión que toca y lo devuelve
+  if (!L || L === 'fabric') { const s = mcSelect(cur, dis); holder.replaceChildren(s); return s; }
+  const list = await A.call(L + 'Versions').catch(() => []);
+  const s = el('select', { class: 'in', disabled: !!dis }, ...list.map(v => el('option', { value: v }, 'Minecraft ' + v)));
+  if (cur && !list.includes(cur)) s.prepend(el('option', { value: cur }, 'Minecraft ' + cur + ' (no hay ' + LNAME[L] + ')'));
+  if (!list.length && !cur) s.append(el('option', { value: '' }, 'Sin conexión: no puedo ver las versiones de ' + LNAME[L]));
+  s.value = list.includes(cur) ? cur : (list[0] || cur || ''); holder.replaceChildren(s); return s;
+}
 const ramMax = () => Math.max(2, Math.min(32, SYS.totalGb - 2));
 function ramField(cur, onSave, label = 'Memoria RAM') {
   const r = el('input', { type: 'range', min: 1, max: ramMax(), step: 1 }), v = el('span', {});
@@ -603,13 +614,16 @@ function imagePick(cur, onChange) {
   return el('div', { class: 'row nw', style: 'gap:12px' }, box, el('div', {}, el('small', { class: 'hint', style: 'display:block;margin:0 0 6px' }, 'PNG o JPG. Se recorta al centro.'), clear));
 }
 async function newProfileDialog() {
-  const n = el('input', { class: 'in', placeholder: 'Por ejemplo: Supervivencia con shaders', maxlength: 40 }), m = mcSelect((P(ST.active) || {}).mc || SYS.versions[0]);
+  const n = el('input', { class: 'in', placeholder: 'Por ejemplo: Supervivencia con shaders', maxlength: 40 });
+  let m = mcSelect((P(ST.active) || {}).mc || SYS.versions[0]), L = 'fabric';
+  const mBox = el('div', {}, m);
+  const lPick = el('div', { class: 'seg' }, ...PLOADERS.map(([v, t]) => el('button', { class: v === L ? 'on' : '', onclick: async e => { L = v; $$('button', lPick).forEach(b => b.classList.toggle('on', b === e.currentTarget)); m = await loaderMcSelect(mBox, v, m.value); } }, t)));
   const d = el('textarea', { class: 'in', rows: 2, maxlength: 300, placeholder: 'Para qué es este perfil (opcional)' });
   let icon = null;
   const body = el('div', {}, el('label', { class: 'f' }, 'Imagen'), imagePick(null, v => { icon = v; }), el('label', { class: 'f' }, 'Nombre'), n, el('label', { class: 'f' }, 'Descripción'), d,
-    el('label', { class: 'f' }, 'Versión'), m, el('div', { class: 'hint' }, 'Cada perfil tiene sus propios mods, mundos y opciones.'));
+    el('label', { class: 'f' }, 'Mods con'), lPick, el('label', { class: 'f' }, 'Versión'), mBox, el('div', { class: 'hint' }, 'Cada perfil tiene sus propios mods, mundos y opciones. Los mods de Fabric, Forge y NeoForge no se mezclan: la tienda enseña los del que elijas.'));
   if (await modal('Nuevo perfil', body, [{ t: 'Cancelar', v: false }, { t: 'Crear perfil', v: true, cls: 'pri' }])) {
-    try { const p = await A.call('profileAdd', { name: n.value, mc: m.value, ram: ST.ram, desc: d.value.trim(), icon }); await reload(); selP = p.id; renderFriends(); setMode('play'); go('profiles'); } catch (e) { toast(clean(e), 'error'); }
+    try { const p = await A.call('profileAdd', { name: n.value, mc: m.value, ram: ST.ram, desc: d.value.trim(), icon, loader: L }); await reload(); selP = p.id; renderFriends(); setMode('play'); go('profiles'); } catch (e) { toast(clean(e), 'error'); }
   }
 }
 async function editProfileDialog(p) {
@@ -636,19 +650,23 @@ function renderProfiles() {
   const R = $('#p-profiles'), p = P(selP) || P(ST.active);
   if (p) selP = p.id;
   const list = el('div', { class: 'panel', style: 'padding:8px' }, ...ST.profiles.map(x => ctx(el('button', { class: 'mini' + (x.id === selP ? ' on' : ''), style: 'padding:9px 10px', onclick: () => { selP = x.id; renderProfiles(); } },
-    profGlyph(x), el('span', { class: 't' }, el('b', {}, x.name), el('small', {}, `Minecraft ${x.mc}${x.own ? ', tu servidor' : x.pack ? ', modpack' : ''}${x.id === ST.active ? ', activo' : ''}`))), () => profileCtx(x))),
+    profGlyph(x), el('span', { class: 't' }, el('b', {}, x.name), el('small', {}, `Minecraft ${x.mc}${x.loader && x.loader !== 'fabric' ? ' · ' + LNAME[x.loader] : ''}${x.own ? ', tu servidor' : x.pack ? ', modpack' : ''}${x.id === ST.active ? ', activo' : ''}`))), () => profileCtx(x))),
     el('div', { class: 'row', style: 'padding:8px 4px 4px' }, el('button', { class: 'btn sm pri', onclick: newProfileDialog }, I('plus', 14), 'Nuevo'), el('button', { class: 'btn sm', onclick: joinDialog }, I('door', 14), 'De un servidor')));
   const detail = el('div', { class: 'stack' });
   if (p) {
     const save = async patch => { await A.call('profileSet', p.id, patch); await reload(); renderFriends(); };
     const name = el('input', { class: 'in', value: p.name, maxlength: 40, onchange: async e => { await save({ name: e.target.value }); renderProfiles(); } });
-    const locked = p.kind === 'friend' && p.compass !== false, mc = mcSelect(p.mc, locked); mc.onchange = async e => { await save({ mc: e.target.value }); toast('Versión cambiada: revisa que tus mods sean de esa versión', 'warn', 6000); renderProfiles(); };
+    const locked = p.kind === 'friend' && p.compass !== false, PL = p.loader || 'fabric', mc = el('div', {});
+    loaderMcSelect(mc, PL, p.mc, locked).then(x => { x.onchange = async e => { await save({ mc: e.target.value }); toast('Versión cambiada: revisa que tus mods sean de esa versión', 'warn', 6000); renderProfiles(); }; });
+    const lsel = el('select', { class: 'in', disabled: p.kind === 'friend', onchange: async e => { await save({ loader: e.target.value }); toast(`Ahora este perfil usa ${LNAME[e.target.value]}: los mods de otro cargador no funcionarán`, 'warn', 7000); renderProfiles(); } }, ...PLOADERS.map(([v, t]) => el('option', { value: v }, t)));
+    lsel.value = PL;
     const open = (what, txt, i = 'folder') => el('button', { class: 'btn sm', onclick: () => A.call('profileOpen', p.id, what) }, I(i, 14), txt);
     detail.append(
       el('div', { class: 'panel' },
         el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:14px' }, el('h3', { style: 'font-size:26px' }, p.name),
           p.id === ST.active ? el('span', { class: 'tag acc' }, 'Perfil activo') : el('button', { class: 'btn sm pri', onclick: async () => { await A.call('setActive', p.id); await reload(); renderProfiles(); renderFriends(); toast('Ahora juegas con ' + p.name, 'ok', 2500); } }, 'Usar este perfil')),
         el('div', { class: 'f2' }, el('div', {}, el('label', { class: 'f' }, 'Nombre'), name), el('div', {}, el('label', { class: 'f' }, 'Versión'), mc, locked ? el('div', { class: 'hint' }, 'La decide el servidor de tu amigo.') : p.kind === 'friend' ? el('div', { class: 'hint' }, 'Se ajusta sola a la del servidor al jugar, si se puede leer.') : null)),
+        el('div', { class: 'f2', style: 'margin-top:4px' }, el('div', {}, el('label', { class: 'f' }, 'Mods con'), lsel, p.kind === 'friend' ? el('div', { class: 'hint' }, 'Lo decide el servidor.') : null), el('div', {})),
         p.kind !== 'friend' ? el('div', { class: 'f2', style: 'margin-top:4px' },
           el('div', {}, el('label', { class: 'f' }, 'Imagen'), imagePick(p.icon, async v => { await save({ icon: v }); })),
           el('div', {}, el('label', { class: 'f' }, 'Descripción'), (() => { const t = el('textarea', { class: 'in', rows: 3, maxlength: 300, placeholder: 'Para qué es este perfil (opcional)', onchange: e => save({ desc: e.target.value.trim() }) }); t.value = p.desc || ''; return t; })())) : null,
@@ -973,21 +991,22 @@ function renderRailServers() {
     const st = hostOf(s.id), M = HS[st.state] || HS.off;
     return ctx(el('button', { class: 'mini' + (s.id === selS && PAGE === 'host' ? ' on' : ''), onclick: () => { if (selS !== s.id) TAB = 'resumen'; selS = s.id; store.set('selS', selS); if (MODE !== 'host') setMode('host'); else openHost(); } },
       srvGlyph(s, st.state !== 'off' ? el('span', { class: 'light ' + M[1] }) : null),
-      el('span', { class: 't' }, el('b', {}, s.name), el('small', {}, st.state === 'ready' ? `En línea, ${plural(st.players.length, 'jugador', 'jugadores')}` : st.state !== 'off' ? M[0] : 'Minecraft ' + s.mc + (s.type === 'paper' ? ' · Paper' : s.type === 'hybrid' ? ' · Mods + plugins' : s.type === 'vanilla' ? ' · Vanilla' : '')))), () => serverCtx(s));
+      el('span', { class: 't' }, el('b', {}, s.name), el('small', {}, st.state === 'ready' ? `En línea, ${plural(st.players.length, 'jugador', 'jugadores')}` : st.state !== 'off' ? M[0] : 'Minecraft ' + s.mc + (s.type === 'paper' ? ' · Paper' : s.type === 'hybrid' ? ' · Mods + plugins' : s.type === 'vanilla' ? ' · Vanilla' : s.type === 'forge' ? ' · Forge' : s.type === 'neoforge' ? ' · NeoForge' : '')))), () => serverCtx(s));
   }) : [el('p', { class: 'hint', style: 'margin:0 12px' }, 'Aún no tienes servidores.')]));
 }
 // tipos de servidor: con mods (Fabric), con plugins (Paper), los dos a la vez (Arclight) o Vanilla (el oficial de Mojang, sin nada)
 const SRV_TYPES = [['fabric', 'cube', 'Con mods (Fabric)', 'Tus amigos reciben los mods solos al unirse.'], ['paper', 'zap', 'Con plugins (Paper)', 'Plugins de servidor: nadie tiene que instalar nada.'],
+  ['forge', 'sword', 'Con mods (Forge)', 'Mods de Forge. Tus amigos los reciben solos al unirse.'], ['neoforge', 'sparkle', 'Con mods (NeoForge)', 'Mods de NeoForge. Tus amigos los reciben solos al unirse.'],
   ['hybrid', 'layers', 'Mods + plugins', 'Mods de Fabric y plugins de Paper a la vez.'], ['vanilla', 'pickaxe', 'Vanilla', 'El Minecraft oficial, sin mods ni plugins. Todas las versiones.']];
-const srvTypeName = t => t === 'paper' ? 'Paper (plugins)' : t === 'hybrid' ? 'Mods + plugins' : t === 'vanilla' ? 'Vanilla' : 'Fabric (mods)';
-const srvTypeIcon = t => t === 'paper' ? 'zap' : t === 'hybrid' ? 'layers' : t === 'vanilla' ? 'pickaxe' : 'cube';
+const srvTypeName = t => t === 'paper' ? 'Paper (plugins)' : t === 'hybrid' ? 'Mods + plugins' : t === 'vanilla' ? 'Vanilla' : t === 'forge' ? 'Forge (mods)' : t === 'neoforge' ? 'NeoForge (mods)' : 'Fabric (mods)';
+const srvTypeIcon = t => t === 'paper' ? 'zap' : t === 'hybrid' ? 'layers' : t === 'vanilla' ? 'pickaxe' : t === 'forge' ? 'sword' : t === 'neoforge' ? 'sparkle' : 'cube';
 // con Paper, «Mods + plugins» o Vanilla, la lista de versiones es la de ese tipo
-const VER_API = { paper: 'paperVersions', hybrid: 'hybridVersions', vanilla: 'vanillaVersions' };
+const VER_API = { paper: 'paperVersions', hybrid: 'hybridVersions', vanilla: 'vanillaVersions', forge: 'forgeVersions', neoforge: 'neoforgeVersions' };
 async function fitVersions(sel, typ, keep) {
   const cur = sel.value;
   let list = SYS.versions;
   if (VER_API[typ]) { try { list = await A.call(VER_API[typ]); } catch { list = []; } if (!list.length) list = SYS.versions; }
-  const limited = !!VER_API[typ], tag = typ === 'paper' ? ' (no hay Paper)' : typ === 'vanilla' ? ' (sin servidor oficial)' : ' (no hay mods + plugins)';
+  const limited = !!VER_API[typ], tag = typ === 'paper' ? ' (no hay Paper)' : typ === 'vanilla' ? ' (sin servidor oficial)' : typ === 'forge' ? ' (no hay Forge)' : typ === 'neoforge' ? ' (no hay NeoForge)' : ' (no hay mods + plugins)';
   const vs = [...new Set([...(keep ? [keep] : []), ...list])].filter(Boolean).sort(vcmp);
   sel.replaceChildren(...vs.map(v => el('option', { value: v }, 'Minecraft ' + v + (limited && !list.includes(v) ? tag : ''))));
   sel.value = vs.includes(cur) && (!limited || list.includes(cur)) ? cur : (limited ? (list.slice().sort(vcmp)[0] || cur) : cur);
@@ -1018,7 +1037,7 @@ async function newServerDialog() {
   }
 }
 const TABHELP = { resumen: 'Estado, quién está dentro y acciones rápidas.', consola: 'Todo lo que dice el servidor. Escribe comandos sin la barra.', mapa: 'Mira el mundo, elige el spawn, crea mundos nuevos con vista previa.',
-  mods: 'Mods de Fabric del servidor. Tus amigos los reciben solos.', plugins: 'Plugins de Paper. Sus dependencias se instalan solas.', gente: 'Quién puede entrar y qué puede hacer: OP, solo TP, lista blanca y baneos.',
+  mods: 'Mods del servidor. Tus amigos los reciben solos.', plugins: 'Plugins de Paper. Sus dependencias se instalan solas.', gente: 'Quién puede entrar y qué puede hacer: OP, solo TP, lista blanca y baneos.',
   auto: 'Modo 24/7, Nether y End, y tareas que se repiten solas.', archivos: 'Los archivos del servidor, con editor.', copias: 'Copias de seguridad del mundo.', ajustes: 'Nombre, icono, mensaje, versión, tipo y reglas de la partida.' };
 const tabsFor = s => [['resumen', 'Resumen', 'layout'], ['consola', 'Consola', 'console'], ['mapa', 'Mapa', 'map'], ...(s.type === 'vanilla' ? [] : s.type === 'paper' ? [['plugins', 'Plugins', 'zap']] : s.type === 'hybrid' ? [['mods', 'Mods', 'cube'], ['plugins', 'Plugins', 'zap']] : [['mods', 'Mods', 'cube']]), ['gente', 'Gente', 'users'], ['auto', 'Automático', 'clock'], ['archivos', 'Archivos', 'folder'], ['copias', 'Copias', 'chest'], ['ajustes', 'Ajustes', 'gear']];
 let SL = [];   // consola del servidor en marcha
@@ -2068,12 +2087,12 @@ async function worldWizard(s) {
 const ICONS_SV = new Map();
 async function srvIcon(s) { if (!s.icon) return null; if (!ICONS_SV.has(s.id)) ICONS_SV.set(s.id, A.call('serverIconGet', s.id).catch(() => null)); return ICONS_SV.get(s.id); }
 function srvGlyph(s, extra) {
-  const g = el('span', { class: 'glyph', style: s.color ? `background:${s.color};color:#fff` : '', html: ic(s.type === 'paper' ? 'zap' : s.type === 'hybrid' ? 'layers' : s.type === 'vanilla' ? 'pickaxe' : 'server', 15) }, extra);
+  const g = el('span', { class: 'glyph', style: s.color ? `background:${s.color};color:#fff` : '', html: ic(s.type === 'paper' ? 'zap' : s.type === 'hybrid' ? 'layers' : s.type === 'vanilla' ? 'pickaxe' : s.type === 'forge' ? 'sword' : s.type === 'neoforge' ? 'sparkle' : 'server', 15) }, extra);
   srvIcon(s).then(u => { if (u) { g.classList.add('custom'); g.innerHTML = ''; g.append(el('img', { src: u, alt: '' })); if (extra) g.append(extra); } });
   return g;
 }
 function srvIconEl(s) {
-  const d = el('div', { class: 'ico40', style: `width:64px;height:64px;image-rendering:pixelated;${s.color ? 'background:' + s.color + ';color:#fff' : ''}`, html: ic(s.type === 'paper' ? 'zap' : s.type === 'hybrid' ? 'layers' : s.type === 'vanilla' ? 'pickaxe' : 'server', 28) });
+  const d = el('div', { class: 'ico40', style: `width:64px;height:64px;image-rendering:pixelated;${s.color ? 'background:' + s.color + ';color:#fff' : ''}`, html: ic(s.type === 'paper' ? 'zap' : s.type === 'hybrid' ? 'layers' : s.type === 'vanilla' ? 'pickaxe' : s.type === 'forge' ? 'sword' : s.type === 'neoforge' ? 'sparkle' : 'server', 28) });
   srvIcon(s).then(u => { if (u) { d.innerHTML = ''; d.append(el('img', { src: u, alt: '', style: 'image-rendering:pixelated' })); } });
   return d;
 }

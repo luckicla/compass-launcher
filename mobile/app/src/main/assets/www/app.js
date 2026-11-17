@@ -171,7 +171,7 @@ let VIEW = { name: 'home' }, SEL = null, TAB = 'resumen';
 const SV = id => (ST.servers || []).find(s => s.id === id);
 const hostOf = id => ST.host && ST.host.id === id ? ST.host : { state: 'off', players: [] };
 const HS = { off: ['Apagado', ''], starting: ['Arrancando…', 'warn'], ready: ['En línea', 'on'], stopping: ['Apagándose…', 'warn'], restarting: ['Reiniciando…', 'warn'] };
-const typeName = t => t === 'paper' ? 'Plugins (Paper)' : t === 'hybrid' ? 'Mods + plugins' : t === 'vanilla' ? 'Vanilla' : 'Mods (Fabric)';
+const typeName = t => t === 'paper' ? 'Plugins (Paper)' : t === 'hybrid' ? 'Mods + plugins' : t === 'vanilla' ? 'Vanilla' : t === 'forge' ? 'Mods (Forge)' : t === 'neoforge' ? 'Mods (NeoForge)' : 'Mods (Fabric)';
 const SRV_ICONS = {};
 function srvIcon(s, box) {
   if (SRV_ICONS[s.id] !== undefined) { box.replaceChildren(SRV_ICONS[s.id] ? el('img', { src: SRV_ICONS[s.id], alt: '' }) : I('server', 26)); return; }

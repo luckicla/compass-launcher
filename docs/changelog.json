@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.7.0": {
+    "es": "## Novedades de la 5.7\n\n- **Forge y NeoForge**: servidores y perfiles con mods de Forge (desde la 1.17.1) o de NeoForge (desde la 1.20.2). Se instalan solos con su instalador oficial.\n- La tienda (Modrinth y CurseForge) enseña solo los mods del cargador de cada perfil o servidor.\n- Tus amigos reciben los mods de un servidor Forge o NeoForge igual que con Fabric: su perfil se monta con el mismo cargador.",
+    "en": "## What's new in 5.7\n\n- **Forge and NeoForge**: servers and profiles with Forge mods (since 1.17.1) or NeoForge mods (since 1.20.2). They install by themselves with their official installer.\n- The store (Modrinth and CurseForge) only shows mods for each profile's or server's loader.\n- Your friends get the mods of a Forge or NeoForge server just like with Fabric: their profile is set up with the same loader.",
+    "ca": "## Novetats de la 5.7\n\n- **Forge i NeoForge**: servidors i perfils amb mods de Forge (des de la 1.17.1) o de NeoForge (des de la 1.20.2). S'instal·len sols amb el seu instal·lador oficial.\n- La botiga (Modrinth i CurseForge) ensenya només els mods del carregador de cada perfil o servidor.\n- Els teus amics reben els mods d'un servidor Forge o NeoForge igual que amb Fabric: el seu perfil es munta amb el mateix carregador."
+  },
   "5.6.2": {
     "es": "## Novedades de la 5.6.2\n\n- Arreglado: algunos mods (como Create Fly) salían como «descarga dañada» y no se instalaban. Ahora se comprueban con la huella de Modrinth y, si hace falta, con una segunda revisión, así que los archivos buenos ya no se rechazan ni se borran.",
     "en": "## What's new in 5.6.2\n\n- Fixed: some mods (like Create Fly) showed \"damaged download\" and wouldn't install. They're now checked against Modrinth's checksum and, if needed, a second check, so good files are no longer rejected or deleted.",

@@ -10,8 +10,9 @@ const { Auth } = require('msmc');
 const compat = require('./modcompat');
 const WM = require('./worldmap');
 
-// tipos de servidor: fabric (mods), paper (plugins), hybrid (mods + plugins) y vanilla (el oficial, sin nada)
-const SRV_KINDS = ['fabric', 'paper', 'hybrid', 'vanilla'];
+// tipos de servidor: fabric (mods), paper (plugins), hybrid (mods + plugins), vanilla (el oficial, sin nada), forge y neoforge (mods)
+const SRV_KINDS = ['fabric', 'paper', 'hybrid', 'vanilla', 'forge', 'neoforge'];
+const isForgeL = L => L === 'forge' || L === 'neoforge';   // Forge y NeoForge: mods, pero no de Fabric
 const noMods = s => s.type === 'paper' || s.type === 'vanilla';
 const UA = 'CompassLauncher/' + require('./package.json').version + ' (amigos)';
 if (process.platform === 'win32') app.setAppUserModelId('es.compas.launcher');   // barra de tareas y avisos de Windows: Compass Launcher, no Electron
@@ -61,10 +62,10 @@ const sdir = s => path.join(U(), s.dir);
 function tgt(t) {   // {kind, id} → carpeta de mods, versión y entorno
   if (t && t.kind === 'server') {
     const s = srv(t.id); if (!s) throw new Error('Servidor no encontrado');
-    return { kind: 'server', id: s.id, name: s.name, mc: s.mc, dir: sdir(s), mods: path.join(sdir(s), 'mods'), plugins: path.join(sdir(s), 'plugins'), env: 'server', type: s.type || 'fabric' };
+    return { kind: 'server', id: s.id, name: s.name, mc: s.mc, dir: sdir(s), mods: path.join(sdir(s), 'mods'), plugins: path.join(sdir(s), 'plugins'), env: 'server', type: s.type || 'fabric', loader: isForgeL(s.type) ? s.type : 'fabric' };
   }
   const p = prof(t && t.id); if (!p) throw new Error('Perfil no encontrado');
-  return { kind: 'profile', id: p.id, name: p.name, mc: p.mc, dir: pdir(p), mods: path.join(pdir(p), 'mods'), env: 'client' };
+  return { kind: 'profile', id: p.id, name: p.name, mc: p.mc, dir: pdir(p), mods: path.join(pdir(p), 'mods'), env: 'client', loader: isForgeL(p.loader) ? p.loader : 'fabric' };
 }
 const okIcon = d => typeof d === 'string' && /^data:image\/(png|jpeg|webp|gif);base64,/.test(d) && d.length < 400 * 1024;
 const ctxOf = t => ({ mc: t.mc, loader: (cfg().fabric[t.mc] || {}).loader, env: t.env });
@@ -305,14 +306,14 @@ async function installedIds(dir) {
 
 // ---------- Modrinth: instalar, resolver dependencias y arreglar conflictos ----------
 const MR = 'https://api.modrinth.com/v2';
-const projectVersions = (id, mc) => J(`${MR}/project/${enc(id)}/version?loaders=${enc(JSON.stringify([loaderOf(mc)]))}&game_versions=${enc(JSON.stringify([mc]))}`);
+const projectVersions = (id, mc, L) => J(`${MR}/project/${enc(id)}/version?loaders=${enc(JSON.stringify([loaderOf(mc, L)]))}&game_versions=${enc(JSON.stringify([mc]))}`);
 const pickVer = vs => vs.find(v => v.version_type === 'release') || vs[0];   // mejor una versión estable que una beta
 const primary = v => v.files.find(f => f.primary) || v.files[0];
 
 async function mrInstall(idOrSlug, t, done = new Set(), versionId = null) {   // devuelve true si instaló algo
   let v;
   if (versionId) v = await J(`${MR}/version/${versionId}`);
-  else { v = pickVer(await projectVersions(idOrSlug, t.mc)); if (!v) throw new Error(`No hay versión de «${idOrSlug}» para Minecraft ${t.mc}`); }
+  else { v = pickVer(await projectVersions(idOrSlug, t.mc, t.loader)); if (!v) throw new Error(`No hay versión de «${idOrSlug}» para Minecraft ${t.mc}`); }
   if (done.has(v.project_id)) return false;
   done.add(v.project_id);
   const f = primary(v);
@@ -332,13 +333,13 @@ async function mrInstall(idOrSlug, t, done = new Set(), versionId = null) {   //
 // que falta y se actualiza lo que se ha quedado viejo, y solo entonces se pone el mod. Si aun así no
 // encaja (otra versión de Minecraft, choca con otro mod…), no se pone y se explica por qué.
 async function safeMrInstall(idOrSlug, t, force) {
-  const v = pickVer(await projectVersions(idOrSlug, t.mc));
+  const v = pickVer(await projectVersions(idOrSlug, t.mc, t.loader));
   if (!v) throw new Error(`No hay versión de «${idOrSlug}» para Minecraft ${t.mc}`);
   if ((await installedIds(t.mods)).has(v.project_id)) return { already: true };
   const f = primary(v), tmpd = path.join(U(), 'tmp', 'nuevo-' + uid()), tf = path.join(tmpd, f.filename);
   fs.mkdirSync(tmpd, { recursive: true });
   try {
-    try { await ensureFabric(t.mc); } catch {}   // para comprobar con el Fabric Loader más nuevo, que es el que se usará
+    if (!isForgeL(t.loader)) try { await ensureFabric(t.mc); } catch {}   // para comprobar con el Fabric Loader más nuevo, que es el que se usará
     await dl(f.url, tf, 'Descargando ' + f.filename, 3, f.hashes && f.hashes.sha1);
     const meta = compat.readMeta(tf), got = [];
     prog('Preparando lo que necesita ' + ((meta && meta.name) || f.filename), 60);
@@ -384,7 +385,7 @@ async function installDep(dep, t) {   // true si ha instalado algo que da «dep�
   fs.mkdirSync(tmp, { recursive: true });
   const tryProj = async id => {
     if (!id || tried.has(id)) return false; tried.add(id);
-    let v; try { v = pickVer(await projectVersions(id, t.mc)); } catch { return false; }
+    let v; try { v = pickVer(await projectVersions(id, t.mc, t.loader)); } catch { return false; }
     if (!v || have.has(v.project_id)) return false;
     const f = primary(v), tf = path.join(tmp, f.filename);
     try {
@@ -400,7 +401,7 @@ async function installDep(dep, t) {   // true si ha instalado algo que da «dep�
   };
   for (const c of depCandidates(dep)) if (await tryProj(c)) return true;
   try {   // último recurso: buscarlo por nombre en Modrinth
-    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(t.mc)}`], [`versions:${t.mc}`]]);
+    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(t.mc, t.loader)}`], [`versions:${t.mc}`]]);
     const r = await J(`${MR}/search?query=${enc(dep.replace(/[-_]/g, ' '))}&facets=${enc(facets)}&limit=5`);
     for (const h of r.hits || []) if (await tryProj(h.project_id)) return true;
   } catch {}
@@ -482,7 +483,7 @@ async function tryReplace(t, file, before, fixed) {   // prueba otras versiones 
   const items = await listLocal(t.mods), cur = items.find(i => i.file === file && i.enabled);
   const info = cur && mcache()[cur.sha1];
   if (!info || !info.projectId) return false;
-  let vs; try { vs = await projectVersions(info.projectId, t.mc); } catch { return false; }
+  let vs; try { vs = await projectVersions(info.projectId, t.mc, t.loader); } catch { return false; }
   const tmp = path.join(U(), 'tmp'); fs.mkdirSync(tmp, { recursive: true });
   for (const v of vs.filter(v => !v.files.some(f => f.hashes.sha1 === cur.sha1)).slice(0, 8)) {
     const f = primary(v), tf = path.join(tmp, f.filename);
@@ -758,16 +759,17 @@ async function cfResolve(dir, items) {   // anfitrión: busca en CurseForge los 
   }
   if (ch) saveMcache();
 }
+const cfLoader = t => ({ forge: 1, neoforge: 6 })[t.loader] || 4;   // tipos de cargador en CurseForge (4 = Fabric)
 async function cfSearch(t, q, sort, offset) {
   const field = { downloads: 6, updated: 3, newest: 11, relevance: 2 }[sort] || 2;
-  const r = await cfGet(`/mods/search?gameId=432&classId=6&gameVersion=${enc(t.mc)}&modLoaderType=4&pageSize=24&index=${offset || 0}&sortField=${field}&sortOrder=desc` + (q ? `&searchFilter=${enc(q)}` : ''));
+  const r = await cfGet(`/mods/search?gameId=432&classId=6&gameVersion=${enc(t.mc)}&modLoaderType=${cfLoader(t)}&pageSize=24&index=${offset || 0}&sortField=${field}&sortOrder=desc` + (q ? `&searchFilter=${enc(q)}` : ''));
   return { total: r.pagination ? r.pagination.totalCount : r.data.length, items: r.data.map(m => ({ id: String(m.id), title: m.name, desc: m.summary,
     icon: m.logo && m.logo.thumbnailUrl, downloads: m.downloadCount, author: m.authors && m.authors[0] && m.authors[0].name })) };
 }
 async function cfInstall(modId, t, done = new Set()) {
   if (done.has(String(modId))) return;
   done.add(String(modId));
-  const r = await cfGet(`/mods/${modId}/files?gameVersion=${enc(t.mc)}&modLoaderType=4&pageSize=20`);
+  const r = await cfGet(`/mods/${modId}/files?gameVersion=${enc(t.mc)}&modLoaderType=${cfLoader(t)}&pageSize=20`);
   const files = r.data.sort((a, b) => new Date(b.fileDate) - new Date(a.fileDate));
   const f = files.find(x => x.releaseType === 1) || files[0];
   if (!f) throw new Error('No hay archivo para Minecraft ' + t.mc);
@@ -786,7 +788,7 @@ async function cfInstall(modId, t, done = new Set()) {
     if (d.relationType === 3) { try { await cfInstall(d.modId, t, done); } catch (e) { log('Dependencia omitida: ' + e.message); } }
 }
 async function mrSearch(t, q, sort, offset) {
-  const facets = JSON.stringify([['project_type:mod'], [`versions:${t.mc}`], [`categories:${loaderOf(t.mc)}`]]);
+  const facets = JSON.stringify([['project_type:mod'], [`versions:${t.mc}`], [`categories:${loaderOf(t.mc, t.loader)}`]]);
   const idx = q ? (sort || 'relevance') : (sort && sort !== 'relevance' ? sort : 'downloads');
   const r = await J(`${MR}/search?query=${enc(q || '')}&facets=${enc(facets)}&limit=24&offset=${offset || 0}&index=${idx}`);
   await scanMods(t.mods);
@@ -821,7 +823,7 @@ async function fabricVersions() {
 const LEGACY_META = 'https://meta.legacyfabric.net/v2';
 const verInfo = mc => ((allVers && allVers.list) || cfg().knownAll || []).find(v => v.id === mc);
 const isLegacy = mc => { const v = verInfo(mc); if (v) return !!v.legacy; const m = /^1\.(\d+)/.exec(String(mc)); return !!m && +m[1] >= 3 && +m[1] <= 13; };
-const loaderOf = mc => isLegacy(mc) ? 'legacy-fabric' : 'fabric';   // cómo se llama el cargador en Modrinth
+const loaderOf = (mc, L) => isForgeL(L) ? L : isLegacy(mc) ? 'legacy-fabric' : 'fabric';   // cómo se llama el cargador en Modrinth
 // Todas las versiones de Minecraft (las de Mojang): normales, snapshots, betas y alphas, y cuáles admiten mods (Fabric)
 let allVers = null;
 async function mcVersions() {
@@ -1082,7 +1084,7 @@ async function buildManifest(s) {
     }
   }
   return { v: 2, name: cur.name, desc: cur.desc || '', color: cur.color || null, icon: fs.existsSync(path.join(sdir(cur), 'server-icon.png')), type: cur.type || 'fabric',
-    mc: cur.mc, loader: paper ? 'vanilla' : 'fabric', mcPort: GAME_PORT, mods, world: cur.shareWorld !== false };
+    mc: cur.mc, loader: paper ? 'vanilla' : isForgeL(cur.type) ? cur.type : 'fabric', mcPort: GAME_PORT, mods, world: cur.shareWorld !== false };
 }
 function syncHandler(s) {
   return async (req, res) => {
@@ -1096,7 +1098,7 @@ function syncHandler(s) {
         return res.end(`<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>${esc(m.name)}</title>
 <style>body{font:16px system-ui,sans-serif;background:#1b1226;color:#efe6da;max-width:640px;margin:40px auto;padding:0 20px}h1{color:#ffb547}a.b{display:inline-block;background:#ffb547;color:#2a1a10;padding:12px 18px;border-radius:6px;font-weight:700;text-decoration:none}code{background:#2c2040;padding:2px 6px;border-radius:4px}li{margin:6px 0}small{color:#a99}</style>
 <h1>${esc(m.name)}</h1><p>${esc(m.desc)}</p>
-<p>Minecraft <b>${esc(m.mc)}</b>${m.loader === 'fabric' ? ' con <b>Fabric</b>' : ''}.</p>
+<p>Minecraft <b>${esc(m.mc)}</b>${m.loader === 'fabric' ? ' con <b>Fabric</b>' : m.loader === 'forge' ? ' con <b>Forge</b>' : m.loader === 'neoforge' ? ' con <b>NeoForge</b>' : ''}.</p>
 ${n ? `<p><a class="b" href="/mods.zip">Descargar los ${n} mods (.zip)</a></p>
 <ol><li>En tu launcher crea una instalación de Minecraft ${esc(m.mc)} con Fabric.</li><li>Descomprime el .zip dentro de su carpeta <code>mods</code>.</li><li>Entra en Multijugador y añade <code>${host}</code>.</li></ol>` : `<p>No hace falta instalar nada: entra en Multijugador y añade <code>${host}</code>.</p>`}
 <p><small>Con Compass Launcher es más fácil: pegas la dirección en Unirme y se descarga todo solo.</small></p></html>`);
@@ -1717,6 +1719,116 @@ async function fabricServerJar(s, dir) {
   return jar;
 }
 const isCardboard = f => /^cardboard/i.test(f);
+// ---------- Forge y NeoForge ----------
+// Se usa el instalador oficial de cada uno: «--installServer» en la carpeta del servidor y «--installClient» en la
+// instancia compartida. Solo versiones con el instalador moderno: Forge desde la 1.17.1 y NeoForge desde la 1.20.2.
+const LNAME = { forge: 'Forge', neoforge: 'NeoForge' };
+const FORGE_MAVEN = 'https://maven.minecraftforge.net/net/minecraftforge/forge', NEO_MAVEN = 'https://maven.neoforged.net/releases/net/neoforged/neoforge';
+const relVer = v => /^\d+\.\d+(\.\d+)?$/.test(v);
+const neoMc = v => {   // 21.1.77 → 1.21.1, 20.4.237 → 1.20.4, 21.0.1 → 1.21; 26.1.0.5-beta → 26.1
+  const n = String(v).split('-')[0].split('.').map(Number); if (n.some(isNaN) || n.length < 3) return null;
+  if (n[0] >= 26) return n.length >= 4 ? n[0] + '.' + n[1] + (n[2] ? '.' + n[2] : '') : null;
+  return '1.' + n[0] + (n[1] ? '.' + n[1] : '');
+};
+const loaderIdx = {};
+async function loaderIndex(L) {   // { mc: versión del cargador a usar }
+  const c = loaderIdx[L]; if (c && Date.now() - c.t < 6 * 3600e3) return c.map;
+  try {
+    const map = {};
+    if (L === 'forge') {
+      const r = await J('https://files.minecraftforge.net/net/minecraftforge/forge/promotions_slim.json');
+      const pr = r.promos || {};
+      for (const k of Object.keys(pr)) { const m = /^(.+)-(recommended|latest)$/.exec(k); if (m && relVer(m[1]) && verCmp(m[1], '1.17.1') <= 0) map[m[1]] = pr[m[1] + '-recommended'] || pr[m[1] + '-latest']; }
+    } else {
+      const r = await J('https://maven.neoforged.net/api/maven/versions/releases/net/neoforged/neoforge');
+      const best = {};   // la última estable; si no hay, la última beta
+      for (const v of r.versions || []) {
+        const mc = neoMc(v); if (!mc || !relVer(mc) || verCmp(mc, '1.20.2') > 0) continue;
+        const beta = /-/.test(v), b = best[mc];
+        if (!b || (b.beta && !beta) || (b.beta === beta && cmpNum(v, b.v) > 0)) best[mc] = { v, beta };
+      }
+      for (const [mc, b] of Object.entries(best)) map[mc] = b.v;
+    }
+    if (Object.keys(map).length) { loaderIdx[L] = { t: Date.now(), map }; cfg()['idx_' + L] = map; save(); return map; }
+  } catch (e) { log(`${LNAME[L]}: ${e.message}`); }
+  return cfg()['idx_' + L] || {};
+}
+const cmpNum = (a, b) => { const x = a.split(/[.-]/).map(n => parseInt(n, 10) || 0), y = b.split(/[.-]/).map(n => parseInt(n, 10) || 0); for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (x[i] || 0) - (y[i] || 0); return 0; };
+const loaderMcs = async L => Object.keys(await loaderIndex(L)).sort(verCmp);
+async function loaderInstaller(L, mc) {   // baja (o reutiliza) el instalador oficial para esa versión de Minecraft
+  const v = (await loaderIndex(L))[mc];
+  if (!v) throw new Error(`${LNAME[L]} no tiene Minecraft ${mc}.` + ' Versiones que sí: ' + (await loaderMcs(L)).slice(0, 8).join(', ') + '…');
+  const full = L === 'forge' ? `${mc}-${v}` : v;
+  const url = L === 'forge' ? `${FORGE_MAVEN}/${full}/forge-${full}-installer.jar` : `${NEO_MAVEN}/${full}/neoforge-${full}-installer.jar`;
+  const f = path.join(U(), 'loaders', `${L}-${full}-installer.jar`);
+  if (!fs.existsSync(f)) await dl(url, f, `Descargando ${LNAME[L]} ${v}`);
+  return { path: f, ver: v, full };
+}
+function runInstaller(java, jar, args, cwd, out) {   // el instalador baja Minecraft y las librerías: puede tardar unos minutos
+  return new Promise((res, rej) => {
+    let tail = '';
+    const p = spawn(java, ['-jar', jar, ...args], { cwd, windowsHide: true });
+    const on = d => { const t = d.toString(); tail = (tail + t).slice(-4000); out(t); };
+    p.stdout.on('data', on); p.stderr.on('data', on);
+    p.on('error', rej);
+    p.on('exit', code => code === 0 ? res() : rej(new Error(`El instalador terminó con error (${code}): ` + tail.trim().split(/\r?\n/).slice(-3).join(' | '))));
+  });
+}
+function findArgsFile(dir, L, ver) {   // libraries/.../win_args.txt (o unix_args.txt) que deja el instalador moderno
+  const want = process.platform === 'win32' ? 'win_args.txt' : 'unix_args.txt';
+  const base = path.join(dir, 'libraries', 'net', L === 'forge' ? 'minecraftforge' : 'neoforged', L === 'forge' ? 'forge' : 'neoforge');
+  try { for (const d of fs.readdirSync(base)) if (d.includes(ver) && fs.existsSync(path.join(base, d, want))) return path.relative(dir, path.join(base, d, want)).split(path.sep).join('/'); } catch {}
+  return null;
+}
+async function forgeServerLaunch(s, dir, note) {   // devuelve los argumentos de Java para arrancar el servidor
+  const L = s.type, mark = path.join(dir, '.compass-loader.json');
+  let cur = null; try { cur = JSON.parse(fs.readFileSync(mark, 'utf8')); } catch {}
+  let inst = null;
+  try { inst = await loaderInstaller(L, s.mc); }
+  catch (e) { if (!(cur && cur.L === L && cur.mc === s.mc)) throw e; log(`Sin red para ${LNAME[L]}, uso el ya instalado (${cur.ver})`); }
+  if (inst && !(cur && cur.L === L && cur.mc === s.mc && cur.ver === inst.ver && findArgsFile(dir, L, inst.ver))) {
+    note(`Instalando ${LNAME[L]} ${inst.ver}… la primera vez tarda unos minutos`);
+    srvOut(`[Compass] Instalando ${LNAME[L]} ${inst.ver} para Minecraft ${s.mc}…\n`);
+    const java = await ensureJava(s.mc);
+    await runInstaller(java, inst.path, ['--installServer', dir], dir, t => srvOut(t));
+    for (const f of ['run.bat', 'run.sh']) try { fs.unlinkSync(path.join(dir, f)); } catch {}
+    cur = { L, mc: s.mc, ver: inst.ver }; fs.writeFileSync(mark, JSON.stringify(cur));
+  }
+  const af = findArgsFile(dir, L, cur.ver);
+  if (!af) throw new Error(`No encuentro cómo arrancar ${LNAME[L]} ${cur.ver}. Borra .compass-loader.json en Archivos y vuelve a iniciar.`);
+  return { args: ['@' + af] };
+}
+// Cliente: el instalador deja versions/<id>/<id>.json. Minecraft Launcher Core no entiende sus argumentos de Java
+// (${library_directory}…), así que se le pasa una copia sin argumentos y estos van ya resueltos aparte.
+async function ensureForgeClient(p) {
+  const L = p.loader, mc = p.mc, c = cfg(), key = L + ':' + mc, R = ROOT();
+  c.forgeClient = c.forgeClient || {};
+  const vj = id => path.join(R, 'versions', id, id + '.json');
+  let k = c.forgeClient[key], inst = null;
+  try { inst = await loaderInstaller(L, mc); }
+  catch (e) { if (!(k && fs.existsSync(vj(k.id)))) throw e; log(`Sin red para ${LNAME[L]}, uso el ya instalado (${k.ver})`); }
+  if (inst && !(k && k.ver === inst.ver && fs.existsSync(vj(k.id)))) {
+    let id = null; try { id = JSON.parse(new AdmZip(inst.path).readAsText('install_profile.json')).version; } catch {}
+    fs.mkdirSync(R, { recursive: true });
+    const lp = path.join(R, 'launcher_profiles.json'); if (!fs.existsSync(lp)) fs.writeFileSync(lp, JSON.stringify({ profiles: {} }));
+    prog(`Instalando ${LNAME[L]} ${inst.ver} (la primera vez tarda unos minutos)`, 30);
+    await runInstaller(await ensureJava(mc), inst.path, ['--installClient', R], R, t => log(t.trimEnd()));
+    if (!id || !fs.existsSync(vj(id))) {   // por si el id no venía en install_profile.json: el json más nuevo que mencione la versión
+      const cand = fs.readdirSync(path.join(R, 'versions')).filter(d => d.includes(inst.ver) && fs.existsSync(vj(d)) && !d.endsWith('-compass'));
+      id = cand.sort((a, b) => fs.statSync(vj(b)).mtimeMs - fs.statSync(vj(a)).mtimeMs)[0];
+    }
+    if (!id) throw new Error(`${LNAME[L]} no se ha instalado bien. Mira el registro en Ajustes.`);
+    k = c.forgeClient[key] = { ver: inst.ver, id }; save();
+  }
+  const j = JSON.parse(fs.readFileSync(vj(k.id), 'utf8'));
+  const sub = a => String(a).replace(/\$\{library_directory\}/g, path.join(R, 'libraries')).replace(/\$\{classpath_separator\}/g, path.delimiter).replace(/\$\{version_name\}/g, mc);
+  const plain = l => (l || []).filter(x => typeof x === 'string').map(sub);
+  const jvm = plain(j.arguments && j.arguments.jvm), game = plain(j.arguments && j.arguments.game);
+  const did = k.id + '-compass', dj = vj(did);
+  fs.mkdirSync(path.dirname(dj), { recursive: true });
+  fs.writeFileSync(dj, JSON.stringify({ ...j, id: did, arguments: { game: [], jvm: [] } }));
+  return { id: did, jvm, game };
+}
 // Vanilla: el servidor oficial de Mojang, tal cual (sin mods ni plugins). Existe desde la 1.2.5.
 async function vanillaJar(s, dir) {
   const v = s.mc, jar = path.join(dir, `minecraft_server-${v}.jar`);
@@ -1774,6 +1886,7 @@ async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) 
     }
     return jar;
   }
+  if (isForgeL(s.type)) { note(`Preparando ${LNAME[s.type]} ${s.mc} …`); return forgeServerLaunch(s, dir, note); }
   if (s.type === 'vanilla') {
     note('Preparando Minecraft ' + s.mc + ' …');
     try { return await vanillaJar(s, dir); }
@@ -1904,7 +2017,7 @@ async function srvSpawn(s, r) {
     if (m && m.env === 'client') { fs.renameSync(path.join(mdir, i.file), path.join(mdir, i.file + '.disabled')); srvOut(`[Compass] ${i.file} es solo de cliente: desactivado en el servidor\n`); }
   }
   if (!alive()) return;
-  const p = spawn(javaExe, ['-Xmx' + s.ram, '-jar', jar, 'nogui'], { cwd: dir, windowsHide: true });
+  const p = spawn(javaExe, ['-Xmx' + s.ram, ...(typeof jar === 'string' ? ['-jar', jar] : jar.args), 'nogui'], { cwd: dir, windowsHide: true });
   r.proc = p; r.wasReady = false; hset({ state: 'starting', note: '' });
   const onData = d => {
     const t = d.toString(); srvOut(t);
@@ -2056,12 +2169,12 @@ async function applyHostInfo(p, m, base) {   // el nombre, la descripción y el 
     } catch {}
   }
 }
-async function similarMod(mod, mc, dir) {   // último recurso: el mismo mod en la tienda, en la versión que haya para este Minecraft
+async function similarMod(mod, mc, dir, L) {   // último recurso: el mismo mod en la tienda, en la versión que haya para este Minecraft
   if (!mod.mid && !mod.projectId) return null;
   const tmp = path.join(U(), 'tmp'), tried = new Set(); fs.mkdirSync(tmp, { recursive: true });
   const tryProj = async id => {
     if (!id || tried.has(id)) return null; tried.add(id);
-    let v; try { v = pickVer(await projectVersions(id, mc)); } catch { return null; }
+    let v; try { v = pickVer(await projectVersions(id, mc, L)); } catch { return null; }
     if (!v) return null;
     const f = primary(v), tf = path.join(tmp, uid() + '-' + f.filename);
     try {
@@ -2074,7 +2187,7 @@ async function similarMod(mod, mc, dir) {   // último recurso: el mismo mod en 
   for (const c of mod.mid ? depCandidates(mod.mid) : []) if ((r = await tryProj(c))) return r;
   const q = mod.title || String(mod.mid || '').replace(/[-_]/g, ' ');
   if (q) try {
-    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(mc)}`], [`versions:${mc}`]]);
+    const facets = JSON.stringify([['project_type:mod'], [`categories:${loaderOf(mc, L)}`], [`versions:${mc}`]]);
     const s = await J(`${MR}/search?query=${enc(q)}&facets=${enc(facets)}&limit=5`);
     for (const h of s.hits || []) if ((r = await tryProj(h.project_id))) return r;
   } catch {}
@@ -2119,12 +2232,12 @@ async function syncFriend(p, silent) {
     }
     if (ok) { if (alt[mod.file]) { try { fs.unlinkSync(path.join(dir, alt[mod.file])); } catch {} delete alt[mod.file]; } }
     else if (alt[mod.file] && fs.existsSync(path.join(dir, alt[mod.file]))) similar.push(label);
-    else { const a = await similarMod(mod, m.mc, dir); if (a) { alt[mod.file] = a; similar.push(label); } else failed.push(label); }
+    else { const a = await similarMod(mod, m.mc, dir, isForgeL(m.loader) ? m.loader : 'fabric'); if (a) { alt[mod.file] = a; similar.push(label); } else failed.push(label); }
     prog('Descargando los mods del servidor', 10 + (++done / todo.length) * 85);
   });
   p.managed = [...new Set([...want.keys(), ...Object.values(alt)])]; try { await dropDupes(dir, p.managed); } catch {}
-  p.mc = m.mc; p.server = game; p.compass = true; p.canWorld = !!m.world;
-  try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
+  p.mc = m.mc; p.server = game; p.compass = true; p.canWorld = !!m.world; p.loader = isForgeL(m.loader) ? m.loader : 'fabric';
+  if (!isForgeL(p.loader)) try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
   fs.writeFileSync(path.join(pdir(p), 'servers.dat'), serversDat([[p.name, game, p.icon]]));
   save(); prog('', 0);
   if (from.tienda || from.anfitrion) log(`Mods: ${from.tienda} de la tienda, ${from.anfitrion} del anfitrión, ${similar.length} parecidos, ${failed.length} sin conseguir`);
@@ -2174,7 +2287,8 @@ async function syncOwn(p) {
   const port = gate ? GAME_PORT : (+readProps(s)['server-port'] || GAME_PORT);
   p.mc = s.mc; p.server = port === GAME_PORT ? '127.0.0.1' : '127.0.0.1:' + port; p.compass = true; p.name = s.name; p.desc = s.desc || ''; p.color = s.color || null;
   try { const b = fs.readFileSync(path.join(sdir(s), 'server-icon.png')); p.icon = 'data:image/png;base64,' + b.toString('base64'); } catch { delete p.icon; }
-  try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
+  p.loader = isForgeL(s.type) ? s.type : 'fabric';
+  if (!isForgeL(p.loader)) try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
   fs.writeFileSync(path.join(pdir(p), 'servers.dat'), serversDat([[p.name, p.server, p.icon]]));
   save(); prog('', 0);
   log(`Perfil de ${s.name}: ${want.size} mods copiados del servidor${mine.size ? ', y tuyos más nuevos: ' + [...mine.values()].join(', ') : ''}`);
@@ -2183,7 +2297,7 @@ async function syncOwn(p) {
 function ownProfile(sid) {   // el perfil de «Entrar yo» de un servidor tuyo (se crea la primera vez)
   const c = cfg(), s = srv(sid); if (!s) throw new Error('Servidor no encontrado');
   let p = c.profiles.find(x => x.own === sid);
-  if (!p) { const id = uid(); p = { id, name: s.name, kind: 'friend', own: sid, mc: s.mc, ram: c.ram, dir: 'profiles/' + id, server: '127.0.0.1', autoJoin: true, managed: [], compass: true }; c.profiles.push(p); save(); }
+  if (!p) { const id = uid(); p = { id, name: s.name, kind: 'friend', own: sid, mc: s.mc, loader: isForgeL(s.type) ? s.type : 'fabric', ram: c.ram, dir: 'profiles/' + id, server: '127.0.0.1', autoJoin: true, managed: [], compass: true }; c.profiles.push(p); save(); }
   return p;
 }
 const syncNote = r => r.failed.length ? `No he podido conseguir: ${r.failed.join(', ')}. Pide a tu amigo que tenga el servidor encendido y vuelve a sincronizar.`
@@ -2582,8 +2696,8 @@ const H = {
 
   // ----- perfiles -----
   setActive: async id => { if (prof(id)) { cfg().active = id; save(); } },
-  profileAdd: async ({ name, mc, ram, desc, icon }) => {
-    const id = uid(), p = { id, name: (name || '').trim() || 'Nuevo perfil', kind: 'local', mc: mc || (await fabricVersions())[0], ram: ram || cfg().ram, dir: 'profiles/' + id };
+  profileAdd: async ({ name, mc, ram, desc, icon, loader }) => {
+    const id = uid(), p = { id, name: (name || '').trim() || 'Nuevo perfil', kind: 'local', mc: mc || (await fabricVersions())[0], ram: ram || cfg().ram, dir: 'profiles/' + id, loader: isForgeL(loader) ? loader : 'fabric' };
     if (desc) p.desc = String(desc).slice(0, 300);
     if (okIcon(icon)) p.icon = icon;
     fs.mkdirSync(path.join(pdir(p), 'mods'), { recursive: true });
@@ -2593,6 +2707,7 @@ const H = {
     const p = prof(id); if (!p) throw new Error('Perfil no encontrado');
     for (const k of ['name', 'mc', 'ram', 'autoJoin']) if (k in patch && !(k === 'mc' && p.kind === 'friend' && p.compass !== false)) p[k] = patch[k];
     if ('desc' in patch) p.desc = String(patch.desc || '').slice(0, 300);
+    if ('loader' in patch && p.kind !== 'friend') p.loader = isForgeL(patch.loader) ? patch.loader : 'fabric';
     if ('icon' in patch) { if (okIcon(patch.icon)) p.icon = patch.icon; else delete p.icon; }
     if (!String(p.name).trim()) p.name = 'Perfil';
     save(); return p;
@@ -2607,7 +2722,7 @@ const H = {
   // servidor pero tus amigos los reciben igual), su imagen, su descripción y, si quieres, uno de sus mundos
   profileToServer: async (id, { world } = {}) => {
     const p = prof(id); if (!p) throw new Error('Perfil no encontrado');
-    const sid = uid(), s = { id: sid, name: p.name, mc: p.mc, ram: cfg().ram, dir: 'servers/' + sid, mode: 'online', autoRestart: false, type: 'fabric', desc: p.desc || '' };
+    const sid = uid(), s = { id: sid, name: p.name, mc: p.mc, ram: cfg().ram, dir: 'servers/' + sid, mode: 'online', autoRestart: false, type: isForgeL(p.loader) ? p.loader : 'fabric', desc: p.desc || '' };
     const sm = path.join(sdir(s), 'mods'), pm = path.join(pdir(p), 'mods'); fs.mkdirSync(sm, { recursive: true });
     let n = 0;
     for (const i of await listLocal(pm)) {
@@ -2705,6 +2820,8 @@ const H = {
   ownProfile: async sid => ownProfile(sid).id,
   hybridVersions: async () => hybridVersions(),
   paperVersions: async () => paperVersions(),
+  forgeVersions: async () => loaderMcs('forge'),
+  neoforgeVersions: async () => loaderMcs('neoforge'),
   // Vanilla: todas las versiones normales de Mojang que tienen servidor oficial (desde la 1.2.5)
   vanillaVersions: async () => (await mcVersions()).filter(v => v.type === 'release' && /^\d+\.\d+(\.\d+)?$/.test(v.id) && verCmp(v.id, '1.2.5') <= 0).map(v => v.id).sort(verCmp),
 
@@ -2868,7 +2985,7 @@ const H = {
     const t = tgt(t0), mods = (await scanMods(t.mods)).filter(m => m.projectId && m.enabled);
     if (!mods.length) return [];
     const r = await J(`${MR}/version_files/update`, { method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ hashes: mods.map(m => m.sha1), algorithm: 'sha1', loaders: [loaderOf(t.mc)], game_versions: [t.mc] }) });
+      body: JSON.stringify({ hashes: mods.map(m => m.sha1), algorithm: 'sha1', loaders: [loaderOf(t.mc, t.loader)], game_versions: [t.mc] }) });
     const out = [];
     for (const m of mods) {
       const v = r[m.sha1]; if (!v) continue;
@@ -2924,7 +3041,7 @@ const H = {
         if (!synced && p.compass === false) { try { const v = await versionFromPing(await slpPing(p.server, 3000)); if (v && v !== p.mc) { p.mc = v; save(); log('El servidor ahora es de Minecraft ' + v); } } catch {} }
       }
       t = tgt({ kind: 'profile', id: pid });   // la versión puede haber cambiado al sincronizar
-      const vi = verInfo(p.mc), hasFabric = !vi || vi.fabric || vi.legacy;
+      const vi = verInfo(p.mc), forgeP = isForgeL(p.loader), hasFabric = !forgeP && (!vi || vi.fabric || vi.legacy);
       if (hasFabric) { try { await clientModSetup(p, t); } catch (e) { log('Menú de servidor: ' + e.message); } }
       if (hasFabric) for (const X of Object.values(EXTRAS)) { try { await extraSetup(p, t, X); } catch (e) { log(X.label + ': ' + e.message); } }
       // la comprobación va DESPUÉS de sincronizar y de poner los extras: si no, se comprobaban mods que luego cambiaban
@@ -2935,8 +3052,9 @@ const H = {
         try { menuSetup(p); } catch (e) { log('Menú de Compass: ' + e.message); }
       }
       const javaPath = await ensureJava(p.mc);
-      let versionId = null;   // las versiones sin Fabric (muy antiguas o snapshots raras) se juegan sin mods
-      try { versionId = await ensureFabric(p.mc); } catch (e) { if (!/no soporta/i.test(e.message)) throw e; log(`Minecraft ${p.mc} no tiene Fabric: se juega sin mods`); toast(`Minecraft ${p.mc} no admite mods (Fabric): se juega normal, sin mods.`, 'info'); }
+      let versionId = null, lx = {};   // las versiones sin Fabric (muy antiguas o snapshots raras) se juegan sin mods
+      if (forgeP) { const fx = await ensureForgeClient(p); versionId = fx.id; lx = { customArgs: fx.jvm, customLaunchArgs: fx.game }; }
+      else try { versionId = await ensureFabric(p.mc); } catch (e) { if (!/no soporta/i.test(e.message)) throw e; log(`Minecraft ${p.mc} no tiene Fabric: se juega sin mods`); toast(`Minecraft ${p.mc} no admite mods (Fabric): se juega normal, sin mods.`, 'info'); }
       const addr = o.server || (p.kind === 'friend' && (o.join || p.autoJoin !== false) ? p.server : null);
       if (addr) log('Entrando directo a ' + addr);
       const l = new Client();
@@ -2977,6 +3095,7 @@ const H = {
         ...(addr ? { quickPlay: quickPlay(p.mc, addr) } : {}),
         version: { number: p.mc, type: mcType(p.mc), ...(versionId ? { custom: versionId } : {}) },
         memory: { max: p.ram || '4G', min: Math.min(2, gbOf(p.ram)) + 'G' },
+        ...lx,
       });
       if (!proc) throw new Error('No se pudo iniciar Minecraft. Mira el registro en Ajustes.');
       setGame('running');
