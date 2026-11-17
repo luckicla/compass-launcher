@@ -34,7 +34,12 @@ const DEFAULTS = { ram: '4G', profiles: [], servers: [], active: null, fabric: {
 // ---------- configuración (un solo objeto en memoria, guardado atómico) ----------
 let CFG = null;
 function cfg() {
-  if (!CFG) { try { CFG = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(CFGF(), 'utf8')) }; } catch { CFG = { ...DEFAULTS, profiles: [], servers: [], fabric: {} }; } }
+  if (!CFG) {
+    for (const f of [CFGF(), CFGF() + '.bak']) {   // si config.json estuviera dañado, se usa la última copia buena
+      try { CFG = { ...DEFAULTS, ...JSON.parse(fs.readFileSync(f, 'utf8')) }; if (f !== CFGF()) console.log('config.json dañado: uso la copia'); break; } catch {}
+    }
+    if (!CFG) CFG = { ...DEFAULTS, profiles: [], servers: [], fabric: {} };
+  }
   return CFG;
 }
 function save() {
@@ -42,7 +47,10 @@ function save() {
   const tmp = CFGF() + '.tmp';
   fs.writeFileSync(tmp, JSON.stringify(cfg(), null, 2));
   fs.renameSync(tmp, CFGF());
+  try { const b = CFGF() + '.bak'; if (!fs.existsSync(b) || Date.now() - fs.statSync(b).mtimeMs > 10 * 60e3) fs.copyFileSync(CFGF(), b); } catch {}
 }
+// escribir un archivo sin dejarlo a medias si Compass se cierra justo en ese momento
+function writeSafe(f, data) { const tmp = f + '.tmp'; fs.writeFileSync(tmp, data); fs.renameSync(tmp, f); }
 const prof = id => cfg().profiles.find(p => p.id === id);
 const srv = id => cfg().servers.find(s => s.id === id);
 const pdir = p => path.join(U(), p.dir);
@@ -149,7 +157,7 @@ async function dl(u, f, label, tries = 3, want = null) {
       await pipeline(rs, fs.createWriteStream(f + '.part'));
       if (total && fs.statSync(f + '.part').size !== total) throw new Error('Descarga cortada: ' + path.basename(f));
       if (want && crypto.createHash('sha1').update(fs.readFileSync(f + '.part')).digest('hex') !== want) throw new Error('Descarga dañada: ' + path.basename(f));
-      if (/\.jar$/i.test(f) && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
+      if (/\.(jar|zip|mrpack)$/i.test(f) && fs.statSync(f + '.part').size < 400e6 && !zipOk(fs.readFileSync(f + '.part'))) throw new Error('Descarga dañada: ' + path.basename(f));
       fs.renameSync(f + '.part', f);
       return;
     } catch (e) {
@@ -169,12 +177,15 @@ function zipOk(b, depth = 0) {
   try {
     let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 66000); i--) if (b.readUInt32LE(i) === 0x06054b50) { e = i; break; }
     if (e < 0) return false;
-    const n = b.readUInt16LE(e + 10); let p = b.readUInt32LE(e + 16);
+    const n = b.readUInt16LE(e + 10), cds = b.readUInt32LE(e + 12); let p = b.readUInt32LE(e + 16);
     if (p === 0xffffffff || n === 0xffff) return true;   // zip64: no se comprueba
+    let shift = 0;   // zips con algo delante (autoextraíbles): el directorio está desplazado
+    if ((p + 4 > b.length || b.readUInt32LE(p) !== 0x02014b50) && e - cds >= 0 && b.readUInt32LE(e - cds) === 0x02014b50) shift = e - cds - p;
+    p += shift;
     for (let k = 0; k < n; k++) {
       if (b.readUInt32LE(p) !== 0x02014b50) return false;
       const meth = b.readUInt16LE(p + 10), crc = b.readUInt32LE(p + 16), cs = b.readUInt32LE(p + 20), us = b.readUInt32LE(p + 24);
-      const nl = b.readUInt16LE(p + 28), el = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32), lo = b.readUInt32LE(p + 42), name = b.toString('utf8', p + 46, p + 46 + nl);
+      const nl = b.readUInt16LE(p + 28), el = b.readUInt16LE(p + 30), cl = b.readUInt16LE(p + 32), lo = b.readUInt32LE(p + 42) + shift, name = b.toString('utf8', p + 46, p + 46 + nl);
       p += 46 + nl + el + cl;
       if (name.endsWith('/') || !us) continue;
       if (b.readUInt32LE(lo) !== 0x04034b50) return false;
@@ -231,7 +242,7 @@ const runCmd = (cmd, args) => new Promise((res, rej) => {
 const MCF = () => path.join(U(), 'modcache.json');
 let modCache = null;
 const mcache = () => modCache || (modCache = (() => { try { return JSON.parse(fs.readFileSync(MCF(), 'utf8')); } catch { return {}; } })());
-const saveMcache = () => { try { fs.writeFileSync(MCF(), JSON.stringify(modCache)); } catch {} };
+const saveMcache = () => { try { writeSafe(MCF(), JSON.stringify(modCache)); } catch {} };
 const isMod = f => /\.jar(\.disabled)?$/.test(f);
 const metaCache = new Map();
 function metaOf(file, sha) {
@@ -1345,7 +1356,7 @@ const jtxt = t => JSON.stringify(String(t)).replace(/[^\x00-\x7f]/g, c => '\\u' 
 const chat = (who, text, color = 'white') => srvCmd(`tellraw ${who} {"text":${jtxt(text)},"color":"${/^[a-z_]+$/.test(color) ? color : 'white'}"}`);
 const tpFile = s => path.join(sdir(s), 'compass-tp.json');
 const tpList = s => { try { return JSON.parse(fs.readFileSync(tpFile(s), 'utf8')).filter(x => x && x.name); } catch { return []; } };
-const tpSave = (s, l) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(tpFile(s), JSON.stringify(l, null, 2)); };
+const tpSave = (s, l) => { fs.mkdirSync(sdir(s), { recursive: true }); writeSafe(tpFile(s), JSON.stringify(l, null, 2)); };
 const tpHas = (s, n) => tpList(s).some(x => x.name.toLowerCase() === String(n).toLowerCase());
 const COORD = /^~?-?\d+(\.\d+)?$|^~$/;
 // ---------- comandos con «!» en el chat (los gestiona Compass leyendo la consola) ----------
@@ -1367,7 +1378,7 @@ function cmdsClean(c) {
 }
 const homesFile = s => path.join(sdir(s), 'compass-homes.json');
 const homesAll = s => { try { return JSON.parse(fs.readFileSync(homesFile(s), 'utf8')) || {}; } catch { return {}; } };
-const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); fs.writeFileSync(homesFile(s), JSON.stringify(h, null, 2)); };
+const homesSave = (s, h) => { fs.mkdirSync(sdir(s), { recursive: true }); writeSafe(homesFile(s), JSON.stringify(h, null, 2)); };
 // Mod «Compass: comandos» (mod/): los mismos comandos con «/» y autocompletado en servidores Fabric 1.20 – 1.21.x y 26.1.
 // El mod solo registra los comandos y avisa por la consola con una clave; lo demás lo hace chatCmd, igual que con «!».
 const CMD_MOD = 'compass-comandos.jar';
@@ -2940,7 +2951,7 @@ function worldDirOf(ref) {   // ref: { kind: 'server', id, world? } | { kind: 'l
   const s = srv(ref.id); if (!s) throw new Error('Servidor no encontrado');
   return path.join(sdir(s), path.basename(ref.world || levelName(s)));
 }
-const mapCacheDir = wd => path.join(U(), 'mapcache', crypto.createHash('sha1').update(wd).digest('hex').slice(0, 16));
+const mapCacheDir = wd => path.join(U(), 'mapcache', crypto.createHash('sha1').update('v2|' + wd).digest('hex').slice(0, 16));   // v2: colores de bioma
 const tileJobs = new Map();
 async function tile(wd, x, z) {   // PNG (y alturas) de una región, con caché por fecha de modificación
   const src = path.join(WM.regionDir(wd), `r.${x}.${z}.mca`), cd = mapCacheDir(wd), png = path.join(cd, `r.${x}.${z}.png`), hf = path.join(cd, `r.${x}.${z}.h`);
@@ -2984,7 +2995,7 @@ function applyPendingSpawn(s) {
 // ---------- permisos: ops, lista blanca y baneos ----------
 const NAME_RE = /^[A-Za-z0-9_]{2,16}$/, IP_RE = /^(\d{1,3}\.){3}\d{1,3}$/;
 const jread = (f, d = []) => { try { return JSON.parse(fs.readFileSync(f, 'utf8')); } catch { return d; } };
-const jwrite = (f, v) => fs.writeFileSync(f, JSON.stringify(v, null, 2));
+const jwrite = (f, v) => writeSafe(f, JSON.stringify(v, null, 2));
 const dashed = h => h.replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5');
 const mcDate = () => { const d = new Date(), z = n => String(n).padStart(2, '0'), o = -d.getTimezoneOffset();
   return `${d.getFullYear()}-${z(d.getMonth() + 1)}-${z(d.getDate())} ${z(d.getHours())}:${z(d.getMinutes())}:${z(d.getSeconds())} ${o >= 0 ? '+' : '-'}${z(Math.abs(o) / 60 | 0)}${z(Math.abs(o) % 60)}`; };
