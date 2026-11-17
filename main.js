@@ -10,6 +10,9 @@ const { Auth } = require('msmc');
 const compat = require('./modcompat');
 const WM = require('./worldmap');
 
+// tipos de servidor: fabric (mods), paper (plugins), hybrid (mods + plugins) y vanilla (el oficial, sin nada)
+const SRV_KINDS = ['fabric', 'paper', 'hybrid', 'vanilla'];
+const noMods = s => s.type === 'paper' || s.type === 'vanilla';
 const UA = 'CompassLauncher/' + require('./package.json').version + ' (amigos)';
 if (process.platform === 'win32') app.setAppUserModelId('es.compas.launcher');   // barra de tareas y avisos de Windows: Compass Launcher, no Electron
 const SYNC_PORT = 8765, GAME_PORT = 25565;
@@ -1053,7 +1056,7 @@ const lanIP = () => Object.values(os.networkInterfaces()).flat().find(i => i.fam
 
 // ---------- lo que reciben los amigos: nombre, icono, descripción y mods (incluidos los solo de cliente) ----------
 async function buildManifest(s) {
-  const cur = srv(s.id) || s, mdir = path.join(sdir(cur), 'mods'), paper = cur.type === 'paper', mods = [];
+  const cur = srv(s.id) || s, mdir = path.join(sdir(cur), 'mods'), paper = noMods(cur), mods = [];
   if (!paper) {
     try { await scanMods(mdir); } catch {}
     const C = mcache(), all = await listLocal(mdir), items = [];
@@ -1707,8 +1710,21 @@ async function fabricServerJar(s, dir) {
   return jar;
 }
 const isCardboard = f => /^cardboard/i.test(f);
+// Vanilla: el servidor oficial de Mojang, tal cual (sin mods ni plugins). Existe desde la 1.2.5.
+async function vanillaJar(s, dir) {
+  const v = s.mc, jar = path.join(dir, `minecraft_server-${v}.jar`);
+  if (fs.existsSync(jar)) return jar;
+  const man = await J('https://piston-meta.mojang.com/mc/game/version_manifest_v2.json');
+  const e = (man.versions || []).find(x => x.id === v);
+  if (!e) throw new Error(`Minecraft ${v} no existe en Mojang. Cámbiala en Ajustes del servidor.`);
+  const d = ((await J(e.url)).downloads || {}).server;
+  if (!d || !d.url) throw new Error(`Mojang no tiene servidor oficial para Minecraft ${v}. Cámbiala en Ajustes del servidor.`);
+  await dl(d.url, jar, 'Descargando servidor de Minecraft ' + v, 3, d.sha1 || null);
+  for (const f of fs.readdirSync(dir)) if (/^minecraft_server-.*\.jar$/.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
+  return jar;
+}
 
-async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric, Arclight o Fabric + Cardboard
+async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric, Arclight, Fabric + Cardboard o Vanilla
   let jar;
   const sv = srv(s.id) || s, mods = path.join(dir, 'mods');
   if (s.type === 'hybrid') {
@@ -1750,6 +1766,11 @@ async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) 
       log('Sin red para Paper, uso ' + old); jar = path.join(dir, old);
     }
     return jar;
+  }
+  if (s.type === 'vanilla') {
+    note('Preparando Minecraft ' + s.mc + ' …');
+    try { return await vanillaJar(s, dir); }
+    catch (e) { const old = fs.readdirSync(dir).find(f => f === `minecraft_server-${s.mc}.jar`); if (!old) throw e; return path.join(dir, old); }
   }
   note('Preparando Fabric ' + s.mc + ' …');
   return fabricServerJar(s, dir);
@@ -1868,10 +1889,10 @@ async function srvSpawn(s, r) {
   catch (e) { stopGate(); log('Puerta: ' + e.message); srvOut(`[Compass] El puerto ${GAME_PORT} está ocupado: tus amigos necesitarán el código CMP para recibir los mods.\n`); }
   if (!alive()) return;
   setProps(s, { 'server-port': port, 'server-ip': bind });
-  if (s.type !== 'paper') { const bad = await dropBrokenJars(mdir); if (bad.length) { srvOut(`[Compass] Mods dañados quitados: ${bad.join(', ')}. Vuelvo a bajar lo que haga falta…\n`); try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} } }
+  if (!noMods(s)) { const bad = await dropBrokenJars(mdir); if (bad.length) { srvOut(`[Compass] Mods dañados quitados: ${bad.join(', ')}. Vuelvo a bajar lo que haga falta…\n`); try { await resolveDeps(tgt({ kind: 'server', id: s.id }), true); } catch {} } }
   try { await cmdModSetup(srv(s.id) || s, r); } catch (e) { r.cmdMod = false; log('Mod de comandos: ' + e.message); }
   if (!alive()) return;
-  if (s.type !== 'paper') for (const i of await listLocal(mdir)) if (i.enabled) {     // los mods solo de cliente no van en un servidor
+  if (!noMods(s)) for (const i of await listLocal(mdir)) if (i.enabled) {     // los mods solo de cliente no van en un servidor
     const m = metaOf(path.join(mdir, i.file), i.sha1);
     if (m && m.env === 'client') { fs.renameSync(path.join(mdir, i.file), path.join(mdir, i.file + '.disabled')); srvOut(`[Compass] ${i.file} es solo de cliente: desactivado en el servidor\n`); }
   }
@@ -2129,7 +2150,7 @@ async function syncOwn(p) {
     if (!i.enabled || (p.managed || []).includes(i.file)) continue;
     const m = metaOf(path.join(dir, i.file), i.sha1); if (m && keepMine.has(m.id)) mine.set(m.id, i.file);
   }
-  if (s.type !== 'paper' && fs.existsSync(sm)) for (const i of await listLocal(sm)) {
+  if (!noMods(s) && fs.existsSync(sm)) for (const i of await listLocal(sm)) {
     const src = path.join(sm, i.file), m = metaOf(src, i.sha1), name = i.file.replace(/\.disabled$/, '');
     if (m && m.env === 'server') continue;
     if ((m && m.id === 'compass-comandos') || i.file.startsWith(CMD_MOD)) continue;
@@ -2146,7 +2167,7 @@ async function syncOwn(p) {
   const port = gate ? GAME_PORT : (+readProps(s)['server-port'] || GAME_PORT);
   p.mc = s.mc; p.server = port === GAME_PORT ? '127.0.0.1' : '127.0.0.1:' + port; p.compass = true; p.name = s.name; p.desc = s.desc || ''; p.color = s.color || null;
   try { const b = fs.readFileSync(path.join(sdir(s), 'server-icon.png')); p.icon = 'data:image/png;base64,' + b.toString('base64'); } catch { delete p.icon; }
-  await ensureFabric(p.mc);
+  try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
   fs.writeFileSync(path.join(pdir(p), 'servers.dat'), serversDat([[p.name, p.server, p.icon]]));
   save(); prog('', 0);
   log(`Perfil de ${s.name}: ${want.size} mods copiados del servidor${mine.size ? ', y tuyos más nuevos: ' + [...mine.values()].join(', ') : ''}`);
@@ -2677,12 +2698,14 @@ const H = {
   ownProfile: async sid => ownProfile(sid).id,
   hybridVersions: async () => hybridVersions(),
   paperVersions: async () => paperVersions(),
+  // Vanilla: todas las versiones normales de Mojang que tienen servidor oficial (desde la 1.2.5)
+  vanillaVersions: async () => (await mcVersions()).filter(v => v.type === 'release' && /^\d+\.\d+(\.\d+)?$/.test(v.id) && verCmp(v.id, '1.2.5') <= 0).map(v => v.id).sort(verCmp),
 
   // ----- servidores -----
   serverAdd: async ({ name, mc, ram, type }) => {
-    const id = uid(), s = { id, name: (name || '').trim() || 'Nuevo servidor', mc: mc || (await fabricVersions())[0], ram: ram || cfg().ram, dir: 'servers/' + id, mode: 'online', autoRestart: false, type: ['paper', 'hybrid'].includes(type) ? type : 'fabric' };
-    if (s.type !== 'paper') fs.mkdirSync(path.join(sdir(s), 'mods'), { recursive: true });
-    if (s.type !== 'fabric') fs.mkdirSync(path.join(sdir(s), 'plugins'), { recursive: true });
+    const id = uid(), s = { id, name: (name || '').trim() || 'Nuevo servidor', mc: mc || (await fabricVersions())[0], ram: ram || cfg().ram, dir: 'servers/' + id, mode: 'online', autoRestart: false, type: SRV_KINDS.includes(type) ? type : 'fabric' };
+    if (!noMods(s)) fs.mkdirSync(path.join(sdir(s), 'mods'), { recursive: true });
+    if (s.type === 'paper' || s.type === 'hybrid') fs.mkdirSync(path.join(sdir(s), 'plugins'), { recursive: true });
     setProps(s, { motd: 'Un servidor de Compass', 'max-players': 10, 'server-port': GAME_PORT, 'online-mode': 'true' });
     cfg().servers.push(s); save(); return s;
   },
@@ -2690,7 +2713,7 @@ const H = {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
     for (const k of ['name', 'mc', 'ram', 'mode', 'autoRestart', 'shareWorld', 'welcome', 'desc', 'color', 'type']) if (k in patch) s[k] = patch[k];
     if (patch.cmds && typeof patch.cmds === 'object') { s.cmds = cmdsClean({ ...cmdsOf(s), ...patch.cmds }); try { cmdCfgWrite(s); } catch {} cmdModSetup(s).catch(() => {}); }
-    if (!['paper', 'hybrid'].includes(s.type)) s.type = 'fabric';
+    if (!SRV_KINDS.includes(s.type)) s.type = 'fabric';
     s.welcome = String(s.welcome || '').replace(/[\r\n]+/g, ' ').slice(0, 200); s.desc = String(s.desc || '').slice(0, 300);
     if (s.color && !/^#[0-9a-f]{6}$/i.test(s.color)) delete s.color;
     if (!String(s.name).trim()) s.name = 'Servidor';
@@ -2723,7 +2746,7 @@ const H = {
     const s = srv(id); if (!s) throw new Error('Servidor no encontrado');
     const t = tgt({ kind: 'server', id });
     if (t.type === 'paper' || t.type === 'hybrid') { fs.mkdirSync(t.plugins, { recursive: true }); try { await resolvePluginDeps(s); } catch {} }
-    if (t.type !== 'paper') { fs.mkdirSync(t.mods, { recursive: true });
+    if (t.type !== 'paper' && t.type !== 'vanilla') { fs.mkdirSync(t.mods, { recursive: true });
       if (!o.force) { try { await resolveDeps(t); } catch {} const issues = await issuesOf(t); if (issues.length) return { blocked: true, issues }; } }
     if (run) throw new Error('Ya hay un servidor en marcha');
     if (previewBusy) throw new Error('Espera a que termine la vista previa del mundo');

@@ -171,7 +171,7 @@ let VIEW = { name: 'home' }, SEL = null, TAB = 'resumen';
 const SV = id => (ST.servers || []).find(s => s.id === id);
 const hostOf = id => ST.host && ST.host.id === id ? ST.host : { state: 'off', players: [] };
 const HS = { off: ['Apagado', ''], starting: ['Arrancando…', 'warn'], ready: ['En línea', 'on'], stopping: ['Apagándose…', 'warn'], restarting: ['Reiniciando…', 'warn'] };
-const typeName = t => t === 'paper' ? 'Plugins (Paper)' : t === 'hybrid' ? 'Mods + plugins' : 'Mods (Fabric)';
+const typeName = t => t === 'paper' ? 'Plugins (Paper)' : t === 'hybrid' ? 'Mods + plugins' : t === 'vanilla' ? 'Vanilla' : 'Mods (Fabric)';
 const SRV_ICONS = {};
 function srvIcon(s, box) {
   if (SRV_ICONS[s.id] !== undefined) { box.replaceChildren(SRV_ICONS[s.id] ? el('img', { src: SRV_ICONS[s.id], alt: '' }) : I('server', 26)); return; }
@@ -445,7 +445,8 @@ async function tabMods(s) {
     out.push(el('div', { class: 'card' }, el('h3', {}, 'Plugins (' + pl.length + ')'), pl.length ? el('div', { class: 'list' }, ...pl.map(p => modRow(p.name, p.version, p.icon, p.enabled,
       () => call('pluginToggle', s.id, p.file), () => call('pluginDelete', s.id, p.file)))) : el('div', { class: 'empty' }, 'No hay plugins')));
   }
-  if (s.type !== 'paper') {
+  if (s.type === 'vanilla') out.push(el('div', { class: 'empty' }, 'Servidor vanilla: sin mods ni plugins'));
+  if (s.type !== 'paper' && s.type !== 'vanilla') {
     const mods = await call('scan', t);
     out.push(el('div', { class: 'card' }, el('h3', {}, 'Mods (' + mods.length + ')'), mods.length ? el('div', { class: 'list' }, ...mods.map(m => modRow(m.title, (m.ver || '') + (m.env === 'client' ? ' · solo cliente' : ''), m.icon, m.enabled,
       () => call('toggleMod', t, m.file), () => call('deleteMod', t, m.file)))) : el('div', { class: 'empty' }, 'No hay mods')));

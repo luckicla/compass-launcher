@@ -235,6 +235,11 @@ input[type=range]::-webkit-slider-thumb{appearance:none;width:14px;height:20px;b
 .profimg img{width:100%;height:100%;object-fit:cover;image-rendering:pixelated}
 .radio.three{grid-template-columns:repeat(3,1fr);gap:10px}.radio.three button{padding:14px 12px}
 @media (max-width:900px){.radio.three{grid-template-columns:1fr}}
+.radio.four{grid-template-columns:repeat(2,1fr);gap:10px}.radio.four button{padding:14px 12px}
+#modal .box.xwide{width:860px}
+#modal .box.xwide .radio.four{grid-template-columns:repeat(4,1fr)}
+.newsrv .pair{display:grid;grid-template-columns:3fr 2fr;gap:12px}
+@media (max-width:900px){#modal .box.xwide .radio.four{grid-template-columns:repeat(2,1fr)}.newsrv .pair{grid-template-columns:1fr}}
 #railProfiles .mini small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* skin y capa */
 .skinwrap{display:grid;grid-template-columns:auto 1fr;gap:22px;min-width:min(820px,88vw);align-items:start}

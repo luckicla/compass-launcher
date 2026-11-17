@@ -1,5 +1,10 @@
 {
   "_": "Notas de cada versión para la web. Si el release de GitHub ya trae notas, la web usa las del release.",
+  "5.6.0": {
+    "es": "## Novedades de la 5.6\n\n- **Servidores Vanilla**: el servidor oficial de Mojang, sin mods ni plugins, en cualquier versión normal desde la 1.2.5.\n- La ventana de «Nuevo servidor» es más ancha: los cuatro tipos se ven de un vistazo y el nombre y la versión van en la misma fila.",
+    "en": "## What's new in 5.6\n\n- **Vanilla servers**: Mojang's official server, no mods or plugins, on any normal version since 1.2.5.\n- The \"New server\" window is wider: the four types fit at a glance and the name and version share a row.",
+    "ca": "## Novetats de la 5.6\n\n- **Servidors Vanilla**: el servidor oficial de Mojang, sense mods ni plugins, en qualsevol versió normal des de la 1.2.5.\n- La finestra de «Nou servidor» és més ampla: els quatre tipus es veuen d'un cop d'ull i el nom i la versió van a la mateixa fila."
+  },
   "5.5.1": {
     "es": "## Novedades de la 5.5.1\n\n- Arreglado: los servidores de Paper decían que no existía una versión que sí existe (por ejemplo la 1.16.5) y sugerían versiones viejísimas. Ahora la versión se descarga bien y, si algo falla, el aviso explica el motivo real.\n- Las listas de versiones ya no se desordenan cuando aparece una prerelease.",
     "en": "## What's new in 5.5.1\n\n- Fixed: Paper servers said a version didn't exist when it did (for example 1.16.5) and suggested very old versions. Now the version downloads correctly and, if something fails, the message explains the real reason.\n- Version lists no longer get scrambled when a pre-release shows up.",
