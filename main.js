@@ -514,26 +514,41 @@ async function autoFix(t) {
 
 // ---------- Paper (servidores con plugins) ----------
 async function paperJar(s, dir) {
-  const v = s.mc;
-  try {   // API nueva de PaperMC (Fill v3)
-    const r = await J(`https://fill.papermc.io/v3/projects/paper/versions/${enc(v)}/builds`);
-    const list = Array.isArray(r) ? r : (r.builds || []);
-    const b = list.find(x => String(x.channel).toUpperCase() === 'STABLE') || list[0];
-    const d = b && b.downloads && (b.downloads['server:default'] || Object.values(b.downloads)[0]);
-    if (d && d.url) {
-      const jar = path.join(dir, `paper-${v}-${b.id || b.build}.jar`);
-      if (!fs.existsSync(jar)) await dl(d.url, jar, 'Descargando Paper ' + v);
+  const v = s.mc, errs = [];
+  const FILL = 'https://fill.papermc.io/v3/projects/paper';
+  let b = null;
+  try {   // API nueva de PaperMC (Fill v3): primero la última build (respuesta pequeña); si no, la lista entera
+    try { b = await J(`${FILL}/versions/${enc(v)}/builds/latest`); } catch (e) { errs.push(e.message); }
+    if (!b || !b.downloads) {
+      const r = await J(`${FILL}/versions/${enc(v)}/builds`, { timeout: 60000 });
+      const list = Array.isArray(r) ? r : (r.builds || []), num = x => Number(x.id ?? x.build) || 0;
+      const stable = list.filter(x => String(x.channel).toUpperCase() === 'STABLE');
+      b = (stable.length ? stable : list).reduce((m, x) => !m || num(x) > num(m) ? x : m, null);
+    }
+  } catch (e) { errs.push(e.message); log('Paper (fill): ' + e.message); b = null; }
+  const d = b && b.downloads && (b.downloads['server:default'] || Object.values(b.downloads)[0]);
+  if (d && d.url) {   // si la descarga falla, se ve el error real (antes se tapaba con «Paper no tiene…»)
+    const jar = path.join(dir, `paper-${v}-${b.id ?? b.build}.jar`);
+    if (!fs.existsSync(jar)) await dl(d.url, jar, 'Descargando Paper ' + v);
+    return jar;
+  }
+  try {   // API antigua (v2)
+    const r = await J(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds`, { timeout: 60000 });
+    const builds = r.builds || [], ob = builds.filter(x => x.channel === 'default').pop() || builds[builds.length - 1];
+    if (ob) {
+      const name = ob.downloads.application.name, jar = path.join(dir, `paper-${v}-${ob.build}.jar`);
+      if (!fs.existsSync(jar)) await dl(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds/${ob.build}/downloads/${name}`, jar, 'Descargando Paper ' + v);
       return jar;
     }
-  } catch (e) { log('Paper (fill): ' + e.message); }
-  let r;   // API antigua (v2)
-  try { r = await J(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds`); }
-  catch { const pv = await paperVersions(); throw new Error(`Paper no tiene Minecraft ${v}.` + (pv.length ? ` Las más nuevas que sí: ${pv.slice(-6).reverse().join(', ')}.` : '') + ' Cámbiala en Ajustes del servidor.'); }
-  const builds = r.builds || [], b = builds.filter(x => x.channel === 'default').pop() || builds.pop();
-  if (!b) throw new Error(`Paper todavía no tiene Minecraft ${v}.`);
-  const name = b.downloads.application.name, jar = path.join(dir, `paper-${v}-${b.build}.jar`);
-  if (!fs.existsSync(jar)) await dl(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds/${b.build}/downloads/${name}`, jar, 'Descargando Paper ' + v);
-  return jar;
+    errs.push('sin builds');
+  } catch (e) { errs.push(e.message); log('Paper (v2): ' + e.message); }
+  // Solo decimos «no tiene» si de verdad no está en la lista de Paper; si está, es un fallo de red/API
+  const pv = await paperVersions();
+  if (pv.length && !pv.includes(v)) {
+    const rel = pv.filter(x => /^\d+\.\d+(\.\d+)?$/.test(x)).slice(0, 6);   // la lista va de más nueva a más vieja
+    throw new Error(`Paper no tiene Minecraft ${v}.` + (rel.length ? ` Las más nuevas que sí: ${rel.join(', ')}.` : '') + ' Cámbiala en Ajustes del servidor.');
+  }
+  throw new Error(`No he podido descargar Paper ${v} (${errs[errs.length - 1] || 'error desconocido'}). Prueba otra vez en un rato; los detalles quedan en Ajustes, Registro.`);
 }
 function pluginMeta(file) {   // lee plugin.yml / paper-plugin.yml sin librerías de YAML
   try {
@@ -772,10 +787,12 @@ async function mrSearch(t, q, sort, offset) {
 
 // ---------- Fabric, Java ----------
 let gameVersions = null;
+// de más nueva a más vieja; aguanta prereleases («1.13-pre7»): antes daban NaN y desordenaban toda la lista
+const verKey = v => { const [n, pre] = String(v).split('-'); return { n: n.split('.').map(x => parseInt(x, 10) || 0), pre: pre ? 1 : 0 }; };
 const verCmp = (a, b) => {
-  const x = a.split('.').map(Number), y = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(x.length, y.length); i++) if ((x[i] || 0) !== (y[i] || 0)) return (y[i] || 0) - (x[i] || 0);
-  return 0;
+  const x = verKey(a), y = verKey(b);
+  for (let i = 0; i < Math.max(x.n.length, y.n.length); i++) if ((x.n[i] || 0) !== (y.n[i] || 0)) return (y.n[i] || 0) - (x.n[i] || 0);
+  return x.pre - y.pre;
 };
 async function fabricVersions() {
   if (gameVersions) return gameVersions;
