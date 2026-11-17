@@ -517,7 +517,7 @@ async function paperJar(s, dir) {
   } catch (e) { log('Paper (fill): ' + e.message); }
   let r;   // API antigua (v2)
   try { r = await J(`https://api.papermc.io/v2/projects/paper/versions/${enc(v)}/builds`); }
-  catch { throw new Error(`Paper todavía no tiene Minecraft ${v}. Elige otra versión en Ajustes del servidor o usa Fabric.`); }
+  catch { const pv = await paperVersions(); throw new Error(`Paper no tiene Minecraft ${v}.` + (pv.length ? ` Las más nuevas que sí: ${pv.slice(-6).reverse().join(', ')}.` : '') + ' Cámbiala en Ajustes del servidor.'); }
   const builds = r.builds || [], b = builds.filter(x => x.channel === 'default').pop() || builds.pop();
   if (!b) throw new Error(`Paper todavía no tiene Minecraft ${v}.`);
   const name = b.downloads.application.name, jar = path.join(dir, `paper-${v}-${b.build}.jar`);
@@ -1374,7 +1374,7 @@ const CMD_MOD = 'compass-comandos.jar';
 // qué archivo va con cada servidor: plugin en Paper/Arclight (1.20 o más nuevo), mod en Fabric 1.20 – 1.21.x y 26.1
 const cmdModFile = mc => /^1\.(20|21)(\.|$)/.test(mc) ? 'compass-comandos-1.20.jar' : /^26\.1(\.|$)/.test(mc) ? 'compass-comandos-26.1.jar' : null;
 const cmdPluginOk = mc => /^1\.(2\d)(\.|$)/.test(mc) || /^2\d\.\d/.test(mc);
-const cmdKind = s => { const t = s.type || 'fabric'; return t === 'paper' || t === 'hybrid' ? (cmdPluginOk(s.mc) ? 'plugin' : null) : t === 'fabric' && cmdModFile(s.mc) ? 'mod' : null; };
+const cmdKind = s => { const t = s.type || 'fabric'; if (t === 'hybrid' && s.hybridVia === 'cardboard' && cmdModFile(s.mc)) return 'mod'; return t === 'paper' || t === 'hybrid' ? (cmdPluginOk(s.mc) ? 'plugin' : null) : t === 'fabric' && cmdModFile(s.mc) ? 'mod' : null; };
 // el .jar va dentro de Compass; si faltara, se baja del release de GitHub de esta versión (o del último)
 async function cmdModSrc(f) {
   const local = [path.join(process.resourcesPath || '', 'mod', f), path.join(__dirname, 'modjars', f)].find(x => { try { return fs.statSync(x).isFile(); } catch { return false; } });
@@ -1630,31 +1630,84 @@ async function arclightBuilds() {
   cfg().arcVersions = [...new Set(list.map(x => x.mc))]; save();
   return list;
 }
+// versiones que tiene Paper (API Fill v3)
+let paperCache = null;
+async function paperVersions() {
+  if (paperCache && Date.now() - paperCache.t < 6 * 3600e3) return paperCache.list;
+  try {
+    const r = await J('https://fill.papermc.io/v3/projects/paper');
+    const v = r && r.versions, list = Array.isArray(v) ? v.map(x => x.version || x.id || x).filter(x => typeof x === 'string') : Object.values(v || {}).flat().filter(x => typeof x === 'string');
+    if (list.length) { paperCache = { t: Date.now(), list: list.sort(verCmp) }; cfg().paperVersions = paperCache.list; save(); return paperCache.list; }
+  } catch (e) { log('Versiones de Paper: ' + e.message); }
+  return (cfg().paperVersions || []).slice();
+}
+// «Mods + plugins»: Arclight (servidor propio) o, si no existe para esa versión, Fabric + Cardboard (un mod que carga plugins)
+let cbCache = null;
+async function cardboardVersions() {
+  if (cbCache && Date.now() - cbCache.t < 6 * 3600e3) return cbCache.list;
+  try {
+    const p = await J(`${MR}/project/cardboard`), list = (p.game_versions || []).filter(v => /^\d+\.\d+(\.\d+)?$/.test(v));
+    cbCache = { t: Date.now(), list }; cfg().cbVersions = list; save(); return list;
+  } catch (e) { log('Versiones de Cardboard: ' + e.message); return (cfg().cbVersions || []).slice(); }
+}
 async function hybridVersions() {
-  try { return [...new Set((await arclightBuilds()).map(x => x.mc))].sort(verCmp); }
-  catch { return (cfg().arcVersions || ['1.21.1', '1.20.4']).slice().sort(verCmp); }
+  let arc = [];
+  try { arc = (await arclightBuilds()).map(x => x.mc); } catch { arc = cfg().arcVersions || ['1.21.1', '1.20.4']; }
+  return [...new Set([...arc, ...await cardboardVersions()])].sort(verCmp);
 }
 async function hybridJar(s, dir) {
-  const all = await arclightBuilds(), list = all.filter(x => x.mc === s.mc);
-  if (!list.length) throw new Error(`«Mods + plugins» no existe para Minecraft ${s.mc}. Hay: ${[...new Set(all.map(x => x.mc))].sort(verCmp).join(', ')}. Cámbiala en Ajustes del servidor.`);
+  let all = []; try { all = await arclightBuilds(); } catch (e) { log('Arclight: ' + e.message); }
+  const list = all.filter(x => x.mc === s.mc);
+  if (!list.length) return null;
   const b = list.find(x => !x.pre) || list[0], jar = path.join(dir, b.name);
   if (!fs.existsSync(jar)) await dl(b.url, jar, 'Descargando Arclight ' + s.mc);
   return jar;
 }
-
-async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric o Arclight
+async function fabricServerJar(s, dir) {
   let jar;
+  try {
+    const lv = await fabricLoader(s.mc);
+    const iv = (await J('https://meta.fabricmc.net/v2/versions/installer')).find(i => i.stable).version;
+    jar = path.join(dir, `fabric-${s.mc}-${lv}.jar`);
+    if (!fs.existsSync(jar)) await dl(`https://meta.fabricmc.net/v2/versions/loader/${s.mc}/${lv}/${iv}/server/jar`, jar, 'Descargando servidor Fabric');
+    for (const f of fs.readdirSync(dir)) if (/^fabric-.*\.jar$/.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
+  } catch (e) {
+    const old = fs.readdirSync(dir).find(f => f.startsWith('fabric-' + s.mc) && f.endsWith('.jar'));
+    if (!old) throw e;
+    log('Sin red para Fabric, uso ' + old); jar = path.join(dir, old);
+  }
+  return jar;
+}
+const isCardboard = f => /^cardboard/i.test(f);
+
+async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) el .jar de Paper, Fabric, Arclight o Fabric + Cardboard
+  let jar;
+  const sv = srv(s.id) || s, mods = path.join(dir, 'mods');
   if (s.type === 'hybrid') {
-    note('Preparando mods + plugins (Arclight) ' + s.mc + ' …');
-    fs.mkdirSync(path.join(dir, 'plugins'), { recursive: true }); fs.mkdirSync(path.join(dir, 'mods'), { recursive: true });
-    try {
-      jar = await hybridJar(s, dir);
+    note('Preparando mods + plugins ' + s.mc + ' …');
+    fs.mkdirSync(path.join(dir, 'plugins'), { recursive: true }); fs.mkdirSync(mods, { recursive: true });
+    try { jar = await hybridJar(s, dir); }
+    catch (e) { const old = fs.readdirSync(dir).find(f => /^arclight-fabric-.*\.jar$/i.test(f) && f.includes('-' + s.mc + '-')); if (old) { log('Sin red para Arclight, uso ' + old); jar = path.join(dir, old); } }
+    if (jar) {   // Arclight ya carga plugins: Cardboard sobra
       for (const f of fs.readdirSync(dir)) if (/^arclight-.*\.jar$/i.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
-    } catch (e) {
-      const old = fs.readdirSync(dir).find(f => /^arclight-fabric-.*\.jar$/i.test(f) && f.includes('-' + s.mc + '-'));
-      if (!old) throw e;
-      log('Sin red para Arclight, uso ' + old); jar = path.join(dir, old);
+      for (const f of fs.readdirSync(mods)) if (isCardboard(f)) try { fs.unlinkSync(path.join(mods, f)); } catch {}
+      if (sv.hybridVia !== 'arclight') { sv.hybridVia = 'arclight'; save(); }
+      return jar;
     }
+    // sin Arclight para esta versión: servidor Fabric normal con Cardboard
+    const cb = await cardboardVersions();
+    if (!cb.includes(s.mc)) {
+      const all = await hybridVersions();
+      throw new Error(`«Mods + plugins» no existe para Minecraft ${s.mc}. Versiones que sí: ${all.join(', ')}. Cámbiala en Ajustes del servidor.`);
+    }
+    note('Preparando Fabric + Cardboard ' + s.mc + ' …');
+    jar = await fabricServerJar(s, dir);
+    for (const f of fs.readdirSync(dir)) if (/^arclight-.*\.jar$/i.test(f)) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
+    if (!fs.readdirSync(mods).some(isCardboard)) {
+      note('Instalando Cardboard (plugins en Fabric)…');
+      await mrInstall('cardboard', tgt({ kind: 'server', id: s.id }));
+    }
+    if (sv.hybridVia !== 'cardboard') { sv.hybridVia = 'cardboard'; save(); }
     return jar;
   }
   if (s.type === 'paper') {
@@ -1668,21 +1721,10 @@ async function serverJar(s, dir, note = () => {}) {   // descarga (o reutiliza) 
       if (!old) throw e;
       log('Sin red para Paper, uso ' + old); jar = path.join(dir, old);
     }
-  } else {
+    return jar;
+  }
   note('Preparando Fabric ' + s.mc + ' …');
-  try {
-    const lv = await fabricLoader(s.mc);
-    const iv = (await J('https://meta.fabricmc.net/v2/versions/installer')).find(i => i.stable).version;
-    jar = path.join(dir, `fabric-${s.mc}-${lv}.jar`);
-    if (!fs.existsSync(jar)) await dl(`https://meta.fabricmc.net/v2/versions/loader/${s.mc}/${lv}/${iv}/server/jar`, jar, 'Descargando servidor Fabric');
-    for (const f of fs.readdirSync(dir)) if (/^fabric-.*\.jar$/.test(f) && path.join(dir, f) !== jar) { try { fs.unlinkSync(path.join(dir, f)); } catch {} }
-  } catch (e) {
-    const old = fs.readdirSync(dir).find(f => f.startsWith('fabric-' + s.mc) && f.endsWith('.jar'));
-    if (!old) throw e;
-    log('Sin red para Fabric, uso ' + old); jar = path.join(dir, old);
-  }
-  }
-  return jar;
+  return fabricServerJar(s, dir);
 }
 
 // ---------- 24/7, Nether/End cerrados al momento y tareas programadas ----------
@@ -2026,7 +2068,7 @@ async function syncFriend(p, silent) {
   });
   p.managed = [...new Set([...want.keys(), ...Object.values(alt)])]; try { await dropDupes(dir, p.managed); } catch {}
   p.mc = m.mc; p.server = game; p.compass = true; p.canWorld = !!m.world;
-  await ensureFabric(p.mc);
+  try { await ensureFabric(p.mc); } catch (e) { log(`Sin Fabric para ${p.mc} (${e.message}): se entra sin mods`); }
   fs.writeFileSync(path.join(pdir(p), 'servers.dat'), serversDat([[p.name, game, p.icon]]));
   save(); prog('', 0);
   if (from.tienda || from.anfitrion) log(`Mods: ${from.tienda} de la tienda, ${from.anfitrion} del anfitrión, ${similar.length} parecidos, ${failed.length} sin conseguir`);
@@ -2606,6 +2648,7 @@ const H = {
   resync: async id => { const p = prof(id); if (!p || p.kind !== 'friend') throw new Error('Este perfil no es de un amigo'); const r = p.own ? await syncOwn(p) : await syncFriend(p, false); return { ...r, note: syncNote(r) }; },
   ownProfile: async sid => ownProfile(sid).id,
   hybridVersions: async () => hybridVersions(),
+  paperVersions: async () => paperVersions(),
 
   // ----- servidores -----
   serverAdd: async ({ name, mc, ram, type }) => {

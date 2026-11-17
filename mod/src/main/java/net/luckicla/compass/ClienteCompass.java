@@ -75,7 +75,14 @@ public class ClienteCompass implements ClientModInitializer {
       if (row > 0) for (AbstractWidget x : new ArrayList<>(list)) if (x != mp && x != sp && x.getY() > below) x.setY(x.getY() - row);
     }
     list.add(go);
+    LOG.info("[CompassTest] menu: unJugador=" + (sp == null ? "no hay" : sp.visible ? "visible" : "oculto") + " conectar=" + go.getX() + "," + go.getY());
+    if (System.getenv("COMPASS_TEST") != null && !tested) {   // prueba automática: pulsar «Conectar al servidor»
+      tested = true;
+      Thread t = new Thread(() -> { try { Thread.sleep(4000); } catch (InterruptedException ignored) {} mc.execute(() -> connect(mc, screen, addr, name)); });
+      t.setDaemon(true); t.start();
+    }
   }
+  static boolean tested = false;
 
   /** Lista de botones de la pantalla (Fabric API la llama distinto según la versión: getButtons, getWidgets…). */
   @SuppressWarnings("unchecked")

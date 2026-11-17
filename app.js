@@ -977,17 +977,18 @@ function renderRailServers() {
 }
 // tipos de servidor: con mods (Fabric), con plugins (Paper) o los dos a la vez (Arclight)
 const SRV_TYPES = [['fabric', 'cube', 'Con mods (Fabric)', 'Tus amigos reciben los mods solos al unirse.'], ['paper', 'zap', 'Con plugins (Paper)', 'Plugins de servidor: nadie tiene que instalar nada.'],
-  ['hybrid', 'layers', 'Mods + plugins', 'Mods de Fabric y plugins de Bukkit/Paper a la vez (Arclight). Solo algunas versiones.']];
+  ['hybrid', 'layers', 'Mods + plugins', 'Mods de Fabric y plugins de Paper en el mismo servidor.']];
 const srvTypeName = t => t === 'paper' ? 'Paper (plugins)' : t === 'hybrid' ? 'Mods + plugins' : 'Fabric (mods)';
 const srvTypeIcon = t => t === 'paper' ? 'zap' : t === 'hybrid' ? 'layers' : 'cube';
-// al elegir «Mods + plugins» la lista de versiones se limita a las que tiene Arclight
+// con Paper o «Mods + plugins», la lista de versiones se limita a las que existen para ese tipo
 async function fitVersions(sel, typ, keep) {
   const cur = sel.value;
   let list = SYS.versions;
-  if (typ === 'hybrid') { try { list = await A.call('hybridVersions'); } catch { list = []; } }
+  if (typ === 'hybrid' || typ === 'paper') { try { list = await A.call(typ === 'paper' ? 'paperVersions' : 'hybridVersions'); } catch { list = []; } if (!list.length) list = SYS.versions; }
+  const limited = typ === 'hybrid' || typ === 'paper', tag = typ === 'paper' ? ' (no hay Paper)' : ' (no hay mods + plugins)';
   const vs = [...new Set([...(keep ? [keep] : []), ...list])].filter(Boolean).sort(vcmp);
-  sel.replaceChildren(...vs.map(v => el('option', { value: v }, 'Minecraft ' + v + (typ === 'hybrid' && !list.includes(v) ? ' (sin mods + plugins)' : ''))));
-  sel.value = vs.includes(cur) && (typ !== 'hybrid' || list.includes(cur)) ? cur : (typ === 'hybrid' ? (list.slice().sort(vcmp)[0] || cur) : cur);
+  sel.replaceChildren(...vs.map(v => el('option', { value: v }, 'Minecraft ' + v + (limited && !list.includes(v) ? tag : ''))));
+  sel.value = vs.includes(cur) && (!limited || list.includes(cur)) ? cur : (limited ? (list.slice().sort(vcmp)[0] || cur) : cur);
 }
 function typePicker(cur, onPick, big) {
   const w = el('div', { class: 'radio three' }, ...SRV_TYPES.map(([v, i, t, d]) => el('button', { class: v === cur ? 'on' : '', onclick: e => { $$('button', w).forEach(b => b.classList.toggle('on', b === e.currentTarget)); onPick(v); } }, I(i, big ? 20 : 18), el('div', {}, el('b', {}, t), el('span', {}, d)))));
@@ -1516,7 +1517,7 @@ async function tabAjustes(s, body) {
   let mode = s.mode || 'online', ram = s.ram, typ = s.type || 'fabric', color = s.color || '';
   const pres = presentationPanel(s, pr, PV, bind, bool, c => color = c);
   const typePick = typePicker(typ, v => { typ = v; fitVersions(mc, v, s.mc); });
-  if (typ === 'hybrid') fitVersions(mc, typ, s.mc);
+  if (typ === 'hybrid' || typ === 'paper') fitVersions(mc, typ, s.mc);
   const modes = el('div', { class: 'radio' }, ...[['online', 'globe', 'Online automático', 'Abre los puertos del router solo y, si no puede, usa un túnel. Lo recomendado.'], ['manual', 'globe', 'Puerto abierto a mano', 'Ya abriste el 25565 (TCP) en tu router. Tus amigos entran con tu IP y reciben los mods por ahí.'], ['tunnel', 'tunnel', 'Solo túnel', 'Sin tocar el router. Para fibras con CGNAT o redes de residencia.'], ['lan', 'wifi', 'Red local o VPN', 'Misma casa o una VPN tipo Radmin o Hamachi.']]
     .map(([m, i, t, d]) => el('button', { class: m === mode ? 'on' : '', onclick: e => { mode = m; $$('button', modes).forEach(x => x.classList.toggle('on', x === e.currentTarget)); } }, I(i, 18), el('div', {}, el('b', {}, t), el('span', {}, d)))));
   const auto = el('input', { type: 'checkbox', checked: !!s.autoRestart }), shareW = el('input', { type: 'checkbox', checked: s.shareWorld !== false });

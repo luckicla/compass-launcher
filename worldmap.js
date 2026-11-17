@@ -72,12 +72,12 @@ const KW = [
 ];
 const WATERY = new Set(['water', 'kelp', 'kelp_plant', 'seagrass', 'tall_seagrass', 'bubble_column']);
 const AIR = new Set(['air', 'cave_air', 'void_air', 'light', 'structure_void', 'barrier']);
-const colorCache = new Map();
+const colorCache = new Map(), unknown = new Map();   // bloques sin color propio (para ir completando la tabla)
 function colorOf(name) {
   let c = colorCache.get(name); if (c) return c;
   c = C[name];
   if (!c) for (const [re, col] of KW) if (re.test(name)) { c = col; break; }
-  if (!c) c = [128, 124, 118];
+  if (!c) { c = [128, 124, 118]; unknown.set(name, (unknown.get(name) || 0) + 1); }
   colorCache.set(name, c); return c;
 }
 
@@ -200,4 +200,4 @@ function dirSize(d, depth = 0) {
   return n;
 }
 
-module.exports = { regionDir, parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };
+module.exports = { unknown, regionDir, parseNBT, packed, renderRegion, encodePNG, levelInfo, listRegions, dirSize, colorOf };
